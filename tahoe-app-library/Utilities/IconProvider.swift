@@ -20,6 +20,16 @@ enum IconProvider {
             return base
         }
     }
+
+    static func cachedHighResIcon(bundleId: String, appPath: String, pointSize: CGFloat) -> NSImage {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        if let cached = IconDiskCache.load(bundleId: bundleId, pointSize: pointSize, scale: scale) {
+            return cached
+        }
+        let img = highResIcon(forFile: appPath, targetPointSize: pointSize)
+        IconDiskCache.save(img, bundleId: bundleId, pointSize: pointSize, scale: scale)
+        return img
+    }
 }
 
 
