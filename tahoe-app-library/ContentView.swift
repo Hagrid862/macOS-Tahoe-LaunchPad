@@ -57,7 +57,7 @@ struct ContentView: View {
                                     LazyVGrid(columns: gridColumns, alignment: .center, spacing: rowSpacing) {
                                         ForEach(page) { app in
                                             VStack(spacing: 8) {
-                                                let nsImage = NSWorkspace.shared.icon(forFile: app.url.path)
+                                                let nsImage = IconProvider.highResIcon(forFile: app.url.path, targetPointSize: 96)
                                                 Image(nsImage: nsImage)
                                                     .resizable()
                                                     .renderingMode(.original)
