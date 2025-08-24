@@ -11,6 +11,7 @@ import CoreGraphics
 
 @main
 struct tahoe_app_libraryApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     /// Returns the primary screen (the one with the menu bar/Dock)
     private func primaryScreen() -> NSScreen? {
         let mainId = CGMainDisplayID()
@@ -45,12 +46,21 @@ struct tahoe_app_libraryApp: App {
                     }
                     window.isMovable = false
                     window.isMovableByWindowBackground = false
+                    // Unhide all other apps when this window closes
+                    NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { _ in
+                        NSApp.unhideAllApplications(nil)
+                    }
                 })
         }
         .windowStyle(.plain)
         .windowToolbarStyle(.unified)
         .windowResizability(.contentSize)
         .defaultSize(width: primaryScreen()?.frame.width ?? 800, height: primaryScreen()?.frame.height ?? 600)
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .inactive || newPhase == .background {
+                NSApp.unhideAllApplications(nil)
+            }
+        }
         
         // Main content window (overlay)
         WindowGroup(id: "main") {

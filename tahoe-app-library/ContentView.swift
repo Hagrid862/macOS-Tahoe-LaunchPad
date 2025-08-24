@@ -140,6 +140,7 @@ struct ContentView: View {
         }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
+            NSApp.hideOtherApplications(nil)
             if let win = NSApp.windows.first(where: { $0.isVisible }) {
                 win.makeKeyAndOrderFront(nil)
             }
