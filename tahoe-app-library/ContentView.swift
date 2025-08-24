@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var cancellables: Set<AnyCancellable> = []
     @State private var currentPage: Int = 0
     @State private var dragTranslation: CGFloat = 0
+    @State private var previousPage: Int? = nil
         
     var body: some View {
         VStack(alignment: .center) {
@@ -26,7 +27,7 @@ struct ContentView: View {
             ZStack(alignment: .center) {
                 GeometryReader { geo in
                     let pageWidth = geo.size.width
-                    let pageSpacing: CGFloat = 30
+                    let pageSpacing: CGFloat = 60
                     let totalPages = max(appPages.count, 1)
                     let baseOffset = -CGFloat(currentPage) * (pageWidth + pageSpacing)
                     let innerVerticalPadding: CGFloat = 10
@@ -34,62 +35,93 @@ struct ContentView: View {
                     let availableHeight = geo.size.height - (innerVerticalPadding * 2)
                     let cellHeight = max(80, (availableHeight - (desiredSpacing * 5)) / 6)
                     let rowSpacing = max(24, (availableHeight - (cellHeight * 6)) / 5)
+                    let isDragging = abs(dragTranslation) > 0.1
+                    let rawTargetIndex = dragTranslation < 0 ? currentPage + 1 : (dragTranslation > 0 ? currentPage - 1 : currentPage)
+                    let targetIndex = isDragging ? min(max(rawTargetIndex, 0), totalPages - 1) : nil
                     HStack(alignment: .top, spacing: pageSpacing) {
-                        ForEach(Array(appPages.enumerated()), id: \.offset) { _, page in
+                        ForEach(Array(appPages.enumerated()), id: \.offset) { index, page in
+                            let isActive = index == currentPage
+                            let isExiting = index == previousPage
+                            let isTarget = (targetIndex ?? -1) == index
+                            let dragProgress = min(CGFloat(1), max(CGFloat(0), abs(dragTranslation) / max(CGFloat(1), pageWidth * 0.5)))
                             VStack(spacing: 0) {
-                                LazyVGrid(columns: gridColumns, alignment: .center, spacing: rowSpacing) {
-                                    ForEach(page) { app in
-                                        VStack(spacing: 8) {
-                                            let nsImage = NSWorkspace.shared.icon(forFile: app.url.path)
-                                            Image(nsImage: nsImage)
-                                                .resizable()
-                                                .renderingMode(.original)
-                                                .interpolation(.high)
-                                                .frame(width: 64, height: 64)
-                                                .cornerRadius(12)
-                                            Text(app.name)
-                                                .font(.system(size: 12))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
+                                if isActive || (isDragging && isTarget) || (!isDragging && isExiting) {
+                                    LazyVGrid(columns: gridColumns, alignment: .center, spacing: rowSpacing) {
+                                        ForEach(page) { app in
+                                            VStack(spacing: 8) {
+                                                let nsImage = NSWorkspace.shared.icon(forFile: app.url.path)
+                                                Image(nsImage: nsImage)
+                                                    .resizable()
+                                                    .renderingMode(.original)
+                                                    .interpolation(.high)
+                                                    .frame(width: 64, height: 64)
+                                                    .cornerRadius(12)
+                                                Text(app.name)
+                                                    .font(.system(size: 12))
+                                                    .lineLimit(1)
+                                                    .truncationMode(.tail)
+                                            }
+                                            .frame(maxWidth: .infinity)
+                                            .frame(height: cellHeight)
                                         }
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: cellHeight)
+                                        // Keep grid balanced to a full page (36 cells)
+                                        ForEach(0..<max(0, 36 - page.count), id: \.self) { _ in
+                                            Color.clear.frame(height: cellHeight)
+                                        }
                                     }
-                                    // Keep grid balanced to a full page (36 cells)
-                                    ForEach(0..<max(0, 36 - page.count), id: \.self) { _ in
-                                        Color.clear.frame(height: cellHeight)
-                                    }
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, innerVerticalPadding)
+                                } else {
+                                    // Lightweight placeholder to retain layout without rendering content
+                                    Color.clear
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 }
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, innerVerticalPadding)
                             }
                             .frame(width: pageWidth, alignment: .top)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color.white.opacity(0.1))
+                            .opacity(
+                                isActive ? (isDragging ? (CGFloat(1.0) - dragProgress) : 1) :
+                                (isTarget ? dragProgress :
+                                (!isDragging && isExiting ? 0 : 0))
                             )
+                            .allowsHitTesting(isActive || (isDragging && isTarget))
+                            .animation(.easeInOut(duration: 0.25), value: currentPage)
+                            .animation(.easeOut(duration: 0.15), value: dragTranslation)
                         }
                     }
                     .offset(x: baseOffset + dragTranslation)
-                    .animation(.easeOut(duration: 0.2), value: currentPage)
+                    .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.1), value: currentPage)
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture()
                             .onChanged { value in
-                                dragTranslation = value.translation.width
+                                var t = value.translation.width
+                                // Gentle resistance at edges
+                                if currentPage == 0 && t > 0 {
+                                    t = t / 3
+                                } else if currentPage == totalPages - 1 && t < 0 {
+                                    t = t / 3
+                                }
+                                dragTranslation = t
                             }
                             .onEnded { value in
-                                let threshold = pageWidth * 0.2
-                                var newPage = currentPage
-                                if value.translation.width < -threshold {
-                                    newPage = min(currentPage + 1, totalPages - 1)
-                                } else if value.translation.width > threshold {
-                                    newPage = max(currentPage - 1, 0)
+                                let threshold = pageWidth * 0.18
+                                let predicted = value.predictedEndTranslation.width
+                                var targetPage = currentPage
+                                if predicted < -threshold || value.translation.width < -threshold {
+                                    targetPage = min(currentPage + 1, totalPages - 1)
+                                } else if predicted > threshold || value.translation.width > threshold {
+                                    targetPage = max(currentPage - 1, 0)
                                 }
-                                dragTranslation = 0
-                                if newPage != currentPage {
-                                    withAnimation(.easeOut(duration: 0.2)) {
-                                        currentPage = newPage
+                                let oldPage = currentPage
+                                previousPage = oldPage
+                                withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.1)) {
+                                    currentPage = targetPage
+                                    dragTranslation = 0
+                                }
+                                // Remove previous page content after fade completes
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    if previousPage == oldPage {
+                                        previousPage = nil
                                     }
                                 }
                             }
