@@ -84,12 +84,11 @@ struct ContentView: View {
                                 (!isDragging && isExiting ? 0 : 0))
                             )
                             .allowsHitTesting(isActive || (isDragging && isTarget))
-                            .animation(.easeInOut(duration: 0.25), value: currentPage)
-                            .animation(.easeOut(duration: 0.15), value: dragTranslation)
+                            .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: currentPage)
                         }
                     }
                     .offset(x: baseOffset + dragTranslation)
-                    .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.1), value: currentPage)
+                    .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: currentPage)
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture()
@@ -114,7 +113,7 @@ struct ContentView: View {
                                 }
                                 let oldPage = currentPage
                                 previousPage = oldPage
-                                withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.85, blendDuration: 0.1)) {
+                                withAnimation(.interpolatingSpring(stiffness: 200, damping: 22)) {
                                     currentPage = targetPage
                                     dragTranslation = 0
                                 }
