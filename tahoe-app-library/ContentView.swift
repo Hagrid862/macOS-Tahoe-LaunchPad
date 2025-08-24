@@ -9,6 +9,7 @@ import SwiftUI
 import AppKit
 import Combine
 import SwiftData
+import Cocoa
 
 struct ContentView: View {
     @State var search: String = ""
@@ -21,6 +22,9 @@ struct ContentView: View {
     @State private var appOrder: [String] = [] // bundleIdentifier order cache
     @Environment(\.modelContext) private var modelContext
     @Query(sort: [SortDescriptor(\AppEntry.order, order: .forward)]) private var storedEntries: [AppEntry]
+    @State private var isOptionDown: Bool = false
+    @State private var appIsActive: Bool = true
+    @State private var jigglePhase: Double = 0
         
     var body: some View {
         VStack(alignment: .center) {
@@ -60,6 +64,7 @@ struct ContentView: View {
                                                     .interpolation(.high)
                                                     .frame(width: 96, height: 96)
                                                     .cornerRadius(12)
+                                                    .jiggle(id: app.bundleIdentifier, phase: jigglePhase, active: appIsActive && isOptionDown)
                                                 Text(app.name)
                                                     .font(.system(size: 12))
                                                     .lineLimit(1)
@@ -153,6 +158,24 @@ struct ContentView: View {
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 isSearchFocused = true
+            }
+        }
+        // SwiftUI timer no longer needed with Core Animation jiggle
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appIsActive = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            appIsActive = false
+        }
+        .onReceive(NSEventPublisher.shared.publisher) { event in
+            if event.type == .flagsChanged {
+                isOptionDown = event.modifierFlags.contains(.option)
+            }
+        }
+        .onReceive(Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()) { _ in
+            if appIsActive && isOptionDown {
+                jigglePhase += 1.0 / 60.0
+                if jigglePhase > 10_000 { jigglePhase = 0 }
             }
         }
     }
