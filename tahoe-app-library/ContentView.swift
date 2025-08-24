@@ -11,13 +11,7 @@ import AppKit
 struct ContentView: View {
     @State var search: String = ""
     @FocusState private var isSearchFocused: Bool
-    private var bottomSafeInset: CGFloat {
-        guard let screen = NSScreen.main else { return 0 }
-        let full = screen.frame
-        let visible = screen.visibleFrame
-        return max(0, full.minY + full.height - (visible.minY + visible.height))
-    }
-    
+        
     var body: some View {
         VStack(alignment: .center) {
             TextField("Search", text: $search)
@@ -26,8 +20,7 @@ struct ContentView: View {
                 .frame(maxWidth: 300)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 24)
-        .padding(.bottom, bottomSafeInset)
+        .padding(.top)
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
             if let win = NSApp.windows.first(where: { $0.isVisible }) {

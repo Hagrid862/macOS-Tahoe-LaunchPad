@@ -13,8 +13,16 @@ struct tahoe_app_libraryApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .glassEffect(.regular.interactive(true), in: RoundedRectangle(cornerRadius: 24))
+                .ignoresSafeArea()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(WindowAccessor { window in
+                    window.titleVisibility = .hidden
+                    window.titlebarAppearsTransparent = true
+                    window.styleMask.insert(.fullSizeContentView)
+                    window.isOpaque = false
+                    window.backgroundColor = .clear
+                    window.hasShadow = false
                     window.standardWindowButton(.closeButton)?.isHidden = true
                     window.standardWindowButton(.miniaturizeButton)?.isHidden = true
                     window.standardWindowButton(.zoomButton)?.isHidden = true
