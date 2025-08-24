@@ -97,6 +97,8 @@ struct ContentView: View {
                                 (isTarget ? (0.95 + 0.05 * dragProgress) :
                                 (!isDragging && isExiting ? 0.95 : 0.95))
                             )
+                            .compositingGroup()
+                            .drawingGroup()
                             .allowsHitTesting(isActive || (isDragging && isTarget))
                             .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: currentPage)
                         }
