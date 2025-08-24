@@ -54,7 +54,7 @@ struct ContentView: View {
                                                     .resizable()
                                                     .renderingMode(.original)
                                                     .interpolation(.high)
-                                                    .frame(width: 64, height: 64)
+                                                    .frame(width: 96, height: 96)
                                                     .cornerRadius(12)
                                                 Text(app.name)
                                                     .font(.system(size: 12))
@@ -82,6 +82,11 @@ struct ContentView: View {
                                 isActive ? (isDragging ? (CGFloat(1.0) - dragProgress) : 1) :
                                 (isTarget ? dragProgress :
                                 (!isDragging && isExiting ? 0 : 0))
+                            )
+                            .scaleEffect(
+                                isActive ? (isDragging ? (1.0 - 0.05 * dragProgress) : 1) :
+                                (isTarget ? (0.95 + 0.05 * dragProgress) :
+                                (!isDragging && isExiting ? 0.95 : 0.95))
                             )
                             .allowsHitTesting(isActive || (isDragging && isTarget))
                             .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: currentPage)
@@ -139,7 +144,6 @@ struct ContentView: View {
         }
         .onAppear {
             NSApp.activate(ignoringOtherApps: true)
-            NSApp.hideOtherApplications(nil)
             if let win = NSApp.windows.first(where: { $0.isVisible }) {
                 win.makeKeyAndOrderFront(nil)
             }
