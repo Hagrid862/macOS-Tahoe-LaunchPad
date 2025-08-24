@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import SwiftData
 
 struct ContentView: View {
     @State var search: String = ""
@@ -17,6 +18,9 @@ struct ContentView: View {
     @State private var currentPage: Int = 0
     @State private var dragTranslation: CGFloat = 0
     @State private var previousPage: Int? = nil
+    @State private var appOrder: [String] = [] // bundleIdentifier order cache
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: [SortDescriptor(\AppEntry.order, order: .forward)]) private var storedEntries: [AppEntry]
         
     var body: some View {
         VStack(alignment: .center) {
@@ -160,9 +164,46 @@ struct ContentView: View {
 
     private func loadApps() async {
         let apps = await AppDiscovery.loadAllApplications()
-        await MainActor.run {
-            self.allApps = apps
+        // Load order from SwiftData; if empty, fall back to UserDefaults for first migration
+        var order = storedEntries.map { $0.bundleId }
+        if order.isEmpty {
+            order = AppOrderStore.loadOrder()
         }
+        let byId = Dictionary(uniqueKeysWithValues: apps.map { ($0.bundleIdentifier, $0) })
+        var ordered: [AppInfo] = []
+        var seen = Set<String>()
+        // Keep existing order for known apps
+        for id in order {
+            if let app = byId[id] {
+                ordered.append(app)
+                seen.insert(id)
+            }
+        }
+        // Append any new apps at the end
+        let newOnes = apps.filter { !seen.contains($0.bundleIdentifier) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        ordered.append(contentsOf: newOnes)
+        // If there was no prior order, initialize from this first discovery
+        let finalOrder = order.isEmpty ? ordered.map { $0.bundleIdentifier } : (ordered.map { $0.bundleIdentifier })
+        // Persist to SwiftData
+        try? await persistOrder(finalOrder, namesById: byId)
+        await MainActor.run {
+            self.appOrder = finalOrder
+            self.allApps = ordered
+        }
+    }
+
+    private func persistOrder(_ order: [String], namesById: [String: AppInfo]) async throws {
+        // Remove all and replace for simplicity (small dataset)
+        for entry in storedEntries { modelContext.delete(entry) }
+        var idx = 0
+        for id in order {
+            let name = namesById[id]?.name ?? id
+            let entry = AppEntry(bundleId: id, order: idx, name: name)
+            modelContext.insert(entry)
+            idx += 1
+        }
+        try modelContext.save()
     }
 
     private var gridColumns: [GridItem] {
@@ -186,4 +227,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .modelContainer(for: [AppEntry.self], inMemory: true)
 }

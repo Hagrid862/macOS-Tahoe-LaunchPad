@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import CoreGraphics
+import SwiftData
 
 @main
 struct tahoe_app_libraryApp: App {
@@ -57,6 +58,7 @@ struct tahoe_app_libraryApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultSize(width: primaryScreen()?.frame.width ?? 800, height: primaryScreen()?.frame.height ?? 600)
+        .modelContainer(for: [AppEntry.self])
     }
 }
 
