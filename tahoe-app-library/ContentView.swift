@@ -9,7 +9,7 @@ import SwiftUI
 import AppKit
 import Combine
 import SwiftData
-import Cocoa
+ 
 
 struct ContentView: View {
     @State var search: String = ""
@@ -24,7 +24,13 @@ struct ContentView: View {
     @Query(sort: [SortDescriptor(\AppEntry.order, order: .forward)]) private var storedEntries: [AppEntry]
     @State private var isOptionDown: Bool = false
     @State private var appIsActive: Bool = true
-    @State private var jigglePhase: Double = 0
+    @State private var draggingApp: AppInfo? = nil
+    @State private var dragLocation: CGPoint = .zero
+    @State private var dragPop: Bool = false
+    @State private var overlayAppearPhase: Bool = false
+    @State private var dropFadeOut: Bool = false
+    
+    
         
     var body: some View {
         VStack(alignment: .center) {
@@ -64,7 +70,50 @@ struct ContentView: View {
                                                     .interpolation(.high)
                                                     .frame(width: 96, height: 96)
                                                     .cornerRadius(12)
-                                                    .jiggle(id: app.bundleIdentifier, phase: jigglePhase, active: appIsActive && isOptionDown)
+                                                    .jiggle2(id: app.bundleIdentifier, active: appIsActive && isOptionDown)
+                                                    .scaleEffect(iconScale(for: app))
+                                                    .scaleEffect(cellScale(for: app))
+                                                    .blur(radius: cellBlur(for: app))
+                                                    .allowsHitTesting(isOptionDown)
+                                                    .gesture(
+                                                        DragGesture(minimumDistance: 0, coordinateSpace: .named("gridSpace"))
+                                                            .onChanged { value in
+                                                                // Only draggable when Option is held
+                                                                guard isOptionDown else { return }
+                                                                if draggingApp == nil {
+                                                                    draggingApp = app
+                                                                    dragPop = true
+                                                                    dropFadeOut = false
+                                                                    overlayAppearPhase = false
+                                                                    DispatchQueue.main.async {
+                                                                        withAnimation(.spring(response: 0.44, dampingFraction: 0.8)) {
+                                                                            overlayAppearPhase = true
+                                                                        }
+                                                                    }
+                                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                                                                        withAnimation(.spring(response: 0.15, dampingFraction: 0.65)) {
+                                                                            dragPop = false
+                                                                        }
+                                                                    }
+                                                                }
+                                                                dragLocation = value.location
+                                                            }
+                                                            .onEnded { _ in
+                                                                // Fade-down on drop; keep overlay visible until animation completes
+                                                                withAnimation(.easeOut(duration: 0.28)) {
+                                                                    dropFadeOut = true
+                                                                }
+                                                                dragPop = false
+                                                                if draggingApp?.id == app.id {
+                                                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                                        draggingApp = nil
+                                                                        overlayAppearPhase = false
+                                                                        dropFadeOut = false
+                                                                    }
+                                                                }
+                                                            }
+                                                    )
+                                                    .animation(.spring(response: 0.44, dampingFraction: 0.8), value: draggingApp?.id)
                                                 Text(app.name)
                                                     .font(.system(size: 12))
                                                     .lineLimit(1)
@@ -72,6 +121,9 @@ struct ContentView: View {
                                             }
                                             .frame(maxWidth: .infinity)
                                             .frame(height: cellHeight)
+                                            .opacity(draggingApp?.id == app.id ? 0.0 : 1.0)
+                                            .animation(.spring(response: 0.44, dampingFraction: 0.8), value: draggingApp?.id)
+                                            .contentShape(Rectangle())
                                         }
                                         // Keep grid balanced to a full page (36 cells)
                                         ForEach(0..<max(0, 36 - page.count), id: \.self) { _ in
@@ -109,6 +161,7 @@ struct ContentView: View {
                     .gesture(
                         DragGesture()
                             .onChanged { value in
+                                if draggingApp != nil { return }
                                 var t = value.translation.width
                                 // Gentle resistance at edges
                                 if currentPage == 0 && t > 0 {
@@ -119,6 +172,7 @@ struct ContentView: View {
                                 dragTranslation = t
                             }
                             .onEnded { value in
+                                if draggingApp != nil { return }
                                 let threshold = pageWidth * 0.18
                                 let predicted = value.predictedEndTranslation.width
                                 var targetPage = currentPage
@@ -141,6 +195,31 @@ struct ContentView: View {
                                 }
                             }
                     )
+                    .coordinateSpace(name: "gridSpace")
+                }
+                // Floating dragged icon overlay
+                if let draggingApp {
+                    let nsImage = IconProvider.cachedHighResIcon(bundleId: draggingApp.bundleIdentifier, appPath: draggingApp.url.path, pointSize: 96)
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .renderingMode(.original)
+                        .interpolation(.high)
+                        .frame(width: 96, height: 96)
+                        .cornerRadius(12)
+                        .jiggle2(id: draggingApp.bundleIdentifier, active: appIsActive && isOptionDown)
+                        .scaleEffect(dropFadeOut ? 0.0 : (overlayAppearPhase ? (dragPop ? 1.24 : 1.18) : 0.85))
+                        .opacity(overlayAppearPhase ? 1.0 : 0.0)
+                        .blur(radius: overlayAppearPhase && !dropFadeOut ? 0.0 : 2.0)
+                        
+                        
+                        // Neutral removal transition so our explicit scale-to-zero drives the exit
+                        .transition(.asymmetric(
+                            insertion: .scale.combined(with: .opacity),
+                            removal: .identity
+                        ))
+                        .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 8)
+                        .position(dragLocation)
+                        .allowsHitTesting(false)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -162,7 +241,7 @@ struct ContentView: View {
                 isSearchFocused = true
             }
         }
-        // SwiftUI timer no longer needed with Core Animation jiggle
+        // Keep existing listeners
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             appIsActive = true
         }
@@ -172,14 +251,21 @@ struct ContentView: View {
         .onReceive(NSEventPublisher.shared.publisher) { event in
             if event.type == .flagsChanged {
                 isOptionDown = event.modifierFlags.contains(.option)
+                // If Option was released while dragging, drop the icon with reverse animation
+                if draggingApp != nil && !isOptionDown {
+                    withAnimation(.easeOut(duration: 0.28)) {
+                        dropFadeOut = true
+                    }
+                    dragPop = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        draggingApp = nil
+                        overlayAppearPhase = false
+                        dropFadeOut = false
+                    }
+                }
             }
         }
-        .onReceive(Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()) { _ in
-            if appIsActive && isOptionDown {
-                jigglePhase += 1.0 / 60.0
-                if jigglePhase > 10_000 { jigglePhase = 0 }
-            }
-        }
+        // No per-frame timer; jiggle2 uses repeatForever internally and we react to flagsChanged
     }
 
     private var filteredApps: [AppInfo] {
@@ -247,6 +333,35 @@ struct ContentView: View {
             index = end
         }
         return pages
+    }
+}
+
+// MARK: - Icon scaling helpers
+extension ContentView {
+    private func iconScale(for app: AppInfo) -> CGFloat {
+        // No scale when not interacting
+        if draggingApp?.id == app.id {
+            // Active drag: pop slightly higher when dragPop is true
+            return dragPop ? 1.24 : 1.18
+        }
+        // No long-press-based pre-scales or pop anymore
+        return 1.0
+    }
+
+    private func cellScale(for app: AppInfo) -> CGFloat {
+        // Subtle scale down when the item is being dragged (applies to original cell)
+        if draggingApp?.id == app.id {
+            return 0.85
+        }
+        return 1.0
+    }
+
+    private func cellBlur(for app: AppInfo) -> CGFloat {
+        // Subtle blur when the item is being dragged (applies to original cell)
+        if draggingApp?.id == app.id {
+            return 2.0
+        }
+        return 0.0
     }
 }
 
