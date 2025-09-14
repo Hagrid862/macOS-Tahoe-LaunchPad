@@ -32,6 +32,7 @@ struct ContentView: View {
     @State var previewPosition: CGPoint = .zero
     @State var showPreview: Bool = false
     @State var targetDropIndex: Int? = nil
+    @State private var pressedAppId: String? = nil
     @State private var hasNavigatedLeft: Bool = false
     @State private var hasNavigatedRight: Bool = false
     @State private var showLeftGlow: Bool = false
@@ -93,13 +94,20 @@ struct ContentView: View {
                                                             .scaleEffect(iconScale(for: app))
                                                             .scaleEffect(cellScale(for: app))
                                                             .scaleEffect(isTargetApp(app) ? 0.85 : 1.0)
+                                                            .scaleEffect(pressedAppId == app.id ? 0.9 : 1.0)
                                                             .opacity(isTargetApp(app) ? 0.6 : 1.0)
                                                             .blur(radius: cellBlur(for: app))
                                                             .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: targetDropIndex)
-                                                            .allowsHitTesting(isOptionDown)
+                                                            .animation(.easeOut(duration: 0.1), value: pressedAppId == app.id)
+                                                            .allowsHitTesting(true)
                                                             .gesture(
                                                                 DragGesture(minimumDistance: 0, coordinateSpace: .named("GlobalDragSpace"))
                                                                     .onChanged { value in
+                                                                        // Track press state for CSS-like active animation
+                                                                        if pressedAppId == nil {
+                                                                            pressedAppId = app.id
+                                                                        }
+
                                                                         guard isOptionDown else { return }
                                                                         if draggingApp == nil {
                                                                             draggingApp = app
@@ -191,6 +199,14 @@ struct ContentView: View {
                                                                         updateDragPreview(for: value.location, in: geo, page: page, cellHeight: cellHeight, rowSpacing: rowSpacing)
                                                                     }
                                                                     .onEnded { _ in
+                                                                        // Clear press state for CSS-like active animation
+                                                                        pressedAppId = nil
+
+                                                                        // Launch app if it wasn't a drag operation
+                                                                        if !isOptionDown {
+                                                                            launchApp(app)
+                                                                        }
+
                                                                         if let draggedApp = draggingApp,
                                                                            let targetIndex = targetDropIndex,
                                                                            let currentIndex = allApps.firstIndex(where: { $0.id == draggedApp.id }),
@@ -608,5 +624,21 @@ struct ContentView: View {
             idx += 1
         }
         try modelContext.save()
+    }
+
+    private func launchApp(_ app: AppInfo) {
+        // Launch the application using NSWorkspace
+        let workspace = NSWorkspace.shared
+        do {
+            try workspace.launchApplication(at: app.url, options: [], configuration: [:])
+            // Close the window after launching the app
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let window = NSApp.windows.first(where: { $0.isVisible }) {
+                    window.close()
+                }
+            }
+        } catch {
+            print("Failed to launch app \(app.name): \(error)")
+        }
     }
 }
