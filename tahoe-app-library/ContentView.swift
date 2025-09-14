@@ -29,6 +29,9 @@ struct ContentView: View {
     @State private var dragPop: Bool = false
     @State private var overlayAppearPhase: Bool = false
     @State private var dropFadeOut: Bool = false
+    @State private var previewPosition: CGPoint = .zero
+    @State private var showPreview: Bool = false
+    @State private var targetDropIndex: Int? = nil
     
     
         
@@ -78,7 +81,6 @@ struct ContentView: View {
                                                     .gesture(
                                                         DragGesture(minimumDistance: 0, coordinateSpace: .named("gridSpace"))
                                                             .onChanged { value in
-                                                                // Only draggable when Option is held
                                                                 guard isOptionDown else { return }
                                                                 if draggingApp == nil {
                                                                     draggingApp = app
@@ -97,13 +99,22 @@ struct ContentView: View {
                                                                     }
                                                                 }
                                                                 dragLocation = value.location
+                                                                updateDragPreview(for: value.location, in: geo, page: page, cellHeight: cellHeight, rowSpacing: rowSpacing)
                                                             }
                                                             .onEnded { _ in
-                                                                // Fade-down on drop; keep overlay visible until animation completes
+                                                                if let draggedApp = draggingApp,
+                                                                   let targetIndex = targetDropIndex,
+                                                                   let currentIndex = allApps.firstIndex(where: { $0.id == draggedApp.id }),
+                                                                   targetIndex != currentIndex {
+                                                                    reorderApps(from: currentIndex, to: targetIndex)
+                                                                }
+
                                                                 withAnimation(.easeOut(duration: 0.28)) {
                                                                     dropFadeOut = true
                                                                 }
                                                                 dragPop = false
+                                                                showPreview = false
+                                                                targetDropIndex = nil
                                                                 if draggingApp?.id == app.id {
                                                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                                                         draggingApp = nil
@@ -221,6 +232,15 @@ struct ContentView: View {
                         .position(dragLocation)
                         .allowsHitTesting(false)
                 }
+                // Drag preview square
+                if showPreview {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.blue.opacity(0.3))
+                        .frame(width: 96, height: 96)
+                        .position(previewPosition)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .frame(maxWidth: 1920)
@@ -257,6 +277,8 @@ struct ContentView: View {
                         dropFadeOut = true
                     }
                     dragPop = false
+                    showPreview = false
+                    targetDropIndex = nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         draggingApp = nil
                         overlayAppearPhase = false
@@ -362,6 +384,62 @@ extension ContentView {
             return 2.0
         }
         return 0.0
+    }
+
+    private func updateDragPreview(for location: CGPoint, in geo: GeometryProxy, page: [AppInfo], cellHeight: CGFloat, rowSpacing: CGFloat) {
+        let pageWidth = geo.size.width
+        let innerVerticalPadding: CGFloat = 10
+        let _ = 32
+        let _ = geo.size.height - (innerVerticalPadding * 2)
+        let columns = 6
+
+        let totalHorizontalPadding: CGFloat = 40
+        let totalColumnSpacing: CGFloat = 24 * 5
+        let availableWidth = pageWidth - totalHorizontalPadding - totalColumnSpacing
+        let cellWidth = availableWidth / CGFloat(columns)
+
+        let gridX = location.x - 20
+        let gridY = location.y - innerVerticalPadding
+
+        let totalGridHeight = (cellHeight + rowSpacing) * 6 - rowSpacing
+        let totalGridWidth = cellWidth * 6 + 24 * 5
+
+        if gridX >= 0 && gridX <= totalGridWidth && gridY >= 0 && gridY <= totalGridHeight {
+            let col = min(Int(gridX / (cellWidth + 24)), columns - 1)
+            let row = min(Int(gridY / (cellHeight + rowSpacing)), 5)
+
+            let targetIndex = row * columns + col
+
+            if targetIndex < 36 {
+                let cellCenterX = 20 + CGFloat(col) * (cellWidth + 24) + cellWidth / 2
+                let cellCenterY = innerVerticalPadding + CGFloat(row) * (cellHeight + rowSpacing) + cellHeight / 2
+
+                previewPosition = CGPoint(x: cellCenterX, y: cellCenterY)
+                targetDropIndex = currentPage * 36 + targetIndex
+                showPreview = true
+            } else {
+                showPreview = false
+                targetDropIndex = nil
+            }
+        } else {
+            showPreview = false
+            targetDropIndex = nil
+        }
+    }
+
+    private func reorderApps(from sourceIndex: Int, to targetIndex: Int) {
+        var apps = allApps
+        let app = apps.remove(at: sourceIndex)
+        apps.insert(app, at: targetIndex)
+
+        let newOrder = apps.map { $0.bundleIdentifier }
+
+        appOrder = newOrder
+        allApps = apps
+
+        Task {
+            try? await persistOrder(newOrder, namesById: Dictionary(uniqueKeysWithValues: apps.map { ($0.bundleIdentifier, $0) }))
+        }
     }
 }
 
