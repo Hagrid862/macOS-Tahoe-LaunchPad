@@ -15,7 +15,7 @@ extension ContentView {
             appOrder = newOrder
 
             Task {
-                try? await persistOrder(newOrder, namesById: Dictionary(uniqueKeysWithValues: updatedApps.map { ($0.bundleIdentifier, $0) }))
+                try? await self.persistOrder(newOrder, namesById: Dictionary(uniqueKeysWithValues: updatedApps.map { ($0.bundleIdentifier, $0) }))
             }
 
             let newPageIndex = appPages.count - 1
