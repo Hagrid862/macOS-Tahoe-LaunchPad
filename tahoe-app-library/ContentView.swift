@@ -32,16 +32,49 @@ struct ContentView: View {
     @State private var previewPosition: CGPoint = .zero
     @State private var showPreview: Bool = false
     @State private var targetDropIndex: Int? = nil
-    
+    @State private var hasNavigatedLeft: Bool = false
+    @State private var hasNavigatedRight: Bool = false
+    @State private var showLeftGlow: Bool = false
+    @State private var showRightGlow: Bool = false
+    @State private var leftGlowIntensity: CGFloat = 1.0
+    @State private var rightGlowIntensity: CGFloat = 1.0
+
     
         
     var body: some View {
-        VStack(alignment: .center) {
-            TextField("Search", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .focused($isSearchFocused)
-                .frame(maxWidth: 300)
-            ZStack(alignment: .center) {
+        ZStack {
+            // Window edge glows during drag (behind content) - absolute positioning
+            if draggingApp != nil {
+                if let screenFrame = NSScreen.main?.frame {
+                    // Left glow - positioned at edge so blur extends into screen (fade animation)
+                    Ellipse()
+                        .fill(Color.white)
+                        .frame(width: 200, height: screenFrame.height) // Oval shape - wider for better blur coverage
+                        .position(x: -45, y: screenFrame.height / 2) // Adjusted position for oval shape
+                        .blur(radius: 40)
+                        .allowsHitTesting(false)
+                        .opacity(leftGlowIntensity)
+                        .animation(.easeInOut(duration: 0.3), value: leftGlowIntensity)
+
+                    // Right glow - positioned at edge so blur extends into screen (fade animation)
+                    Ellipse()
+                        .fill(Color.white)
+                        .frame(width: 200, height: screenFrame.height) // Oval shape - wider for better blur coverage
+                        .position(x: screenFrame.width, y: screenFrame.height / 2) // Adjusted position for oval shape
+                        .blur(radius: 40)
+                        .allowsHitTesting(false)
+                        .opacity(rightGlowIntensity)
+                        .animation(.easeInOut(duration: 0.3), value: rightGlowIntensity)
+                        .animation(.easeInOut(duration: 0.3), value: showRightGlow)
+                }
+            }
+
+            VStack(alignment: .center) {
+                TextField("Search", text: $search)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($isSearchFocused)
+                    .frame(maxWidth: 300)
+                ZStack(alignment: .center) {
                 GeometryReader { geo in
                     let pageWidth = geo.size.width
                     let pageSpacing: CGFloat = 60
@@ -90,6 +123,9 @@ struct ContentView: View {
                                                                     dragPop = true
                                                                     dropFadeOut = false
                                                                     overlayAppearPhase = false
+                                                                    // Show glows when starting drag (left glow only if not on first page)
+                                                                    showLeftGlow = currentPage > 0
+                                                                    showRightGlow = true
                                                                     DispatchQueue.main.async {
                                                                         withAnimation(.spring(response: 0.44, dampingFraction: 0.8)) {
                                                                             overlayAppearPhase = true
@@ -102,6 +138,73 @@ struct ContentView: View {
                                                                     }
                                                                 }
                                                                 dragLocation = value.location
+
+                                                                // Check for navigation zone entry (relative to window edges)
+                                                                // Convert local drag location to window coordinates
+                                                                let windowWidth = NSScreen.main?.frame.width ?? 1920
+
+                                                                // Get the window and convert coordinates properly
+                                                                var windowPoint = CGPoint.zero
+                                                                if NSApp.windows.first(where: { $0.isVisible }) != nil {
+                                                                    // Convert from geometry reader's coordinate space to window coordinates
+                                                                    let globalPoint = geo.frame(in: .global).origin
+                                                                    windowPoint = CGPoint(
+                                                                        x: value.location.x + globalPoint.x + 30, // account for horizontal padding
+                                                                        y: value.location.y + globalPoint.y + 20  // account for vertical padding
+                                                                    )
+                                                                } else {
+                                                                    // Fallback to approximation if window not found
+                                                                    windowPoint = CGPoint(x: value.location.x + 30, y: value.location.y + 20)
+                                                                }
+
+                                                                // Update glow intensity based on proximity to edges
+                                                                // Both sides start at 200px from edge, max intensity at 50px from edge
+                                                                let glowActivationDistance: CGFloat = 200.0
+                                                                let glowMaxIntensityDistance: CGFloat = 50.0
+
+                                                                // Better visibility with smooth animation - more visible but still elegant
+                                                                let baseGlowIntensity: CGFloat = 0.15 // More visible base intensity
+                                                                let maxGlowIntensity: CGFloat = 0.5 // Good max intensity for smooth animation
+
+                                                                // Calculate intensity for left glow with smooth animation
+                                                                if showLeftGlow {
+                                                                    if windowPoint.x <= glowActivationDistance {
+                                                                        let normalizedDistance = max(0, windowPoint.x - glowMaxIntensityDistance) / (glowActivationDistance - glowMaxIntensityDistance)
+                                                                        leftGlowIntensity = baseGlowIntensity + ((maxGlowIntensity - baseGlowIntensity) * (1.0 - normalizedDistance)) // Smooth animation from base to max
+                                                                    } else {
+                                                                        leftGlowIntensity = baseGlowIntensity // Base glow when navigation available
+                                                                    }
+                                                                } else {
+                                                                    leftGlowIntensity = 0.0
+                                                                }
+
+                                                                // Calculate intensity for right glow with smooth animation
+                                                                if showRightGlow {
+                                                                    if windowPoint.x >= (windowWidth - glowActivationDistance) {
+                                                                        let distanceFromRightEdge = windowWidth - windowPoint.x
+                                                                        let normalizedDistance = max(0, distanceFromRightEdge - glowMaxIntensityDistance) / (glowActivationDistance - glowMaxIntensityDistance)
+                                                                        rightGlowIntensity = baseGlowIntensity + ((maxGlowIntensity - baseGlowIntensity) * (1.0 - normalizedDistance)) // Smooth animation from base to max
+                                                                    } else {
+                                                                        rightGlowIntensity = baseGlowIntensity // Base glow when navigation available
+                                                                    }
+                                                                } else {
+                                                                    rightGlowIntensity = 0.0
+                                                                }
+
+                                                                // Page switching happens at 100px from edge (within the glow area)
+                                                                let pageSwitchThreshold: CGFloat = 100.0
+                                                                if windowPoint.x < pageSwitchThreshold && currentPage > 0 && !hasNavigatedLeft {
+                                                                    hasNavigatedLeft = true
+                                                                    navigateToPage(currentPage - 1)
+                                                                } else if windowPoint.x > windowWidth - pageSwitchThreshold && !hasNavigatedRight {
+                                                                    hasNavigatedRight = true
+                                                                    if currentPage < appPages.count - 1 {
+                                                                        navigateToPage(currentPage + 1)
+                                                                    } else {
+                                                                        createNewPageWithDraggedIcon()
+                                                                    }
+                                                                }
+
                                                                 updateDragPreview(for: value.location, in: geo, page: page, cellHeight: cellHeight, rowSpacing: rowSpacing)
                                                             }
                                                             .onEnded { _ in
@@ -118,11 +221,17 @@ struct ContentView: View {
                                                                 dragPop = false
                                                                 showPreview = false
                                                                 targetDropIndex = nil
+                                                                leftGlowIntensity = 0.0
+                                                                rightGlowIntensity = 0.0
+                                                                showLeftGlow = false
+                                                                showRightGlow = false
                                                                 if draggingApp?.id == app.id {
                                                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                                                         draggingApp = nil
                                                                         overlayAppearPhase = false
                                                                         dropFadeOut = false
+                                                                        hasNavigatedLeft = false
+                                                                        hasNavigatedRight = false
                                                                     }
                                                                 }
                                                             }
@@ -214,6 +323,7 @@ struct ContentView: View {
                     )
                     .coordinateSpace(name: "gridSpace")
                 }
+
                 // Drag preview square
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.blue.opacity(0.3))
@@ -253,6 +363,7 @@ struct ContentView: View {
             .frame(maxWidth: 1920)
             .padding(.horizontal, 30)
             .padding(.vertical, 20)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.top)
@@ -286,6 +397,10 @@ struct ContentView: View {
                     dragPop = false
                     showPreview = false
                     targetDropIndex = nil
+                    leftGlowIntensity = 0.0
+                    rightGlowIntensity = 0.0
+                    showLeftGlow = false
+                    showRightGlow = false
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         draggingApp = nil
                         overlayAppearPhase = false
@@ -362,6 +477,49 @@ struct ContentView: View {
             index = end
         }
         return pages
+    }
+
+    private func navigateToPage(_ pageIndex: Int) {
+        let clampedIndex = max(0, min(pageIndex, appPages.count - 1))
+        if clampedIndex != currentPage {
+            previousPage = currentPage
+            withAnimation(.interpolatingSpring(stiffness: 200, damping: 22)) {
+                currentPage = clampedIndex
+                dragTranslation = 0
+            }
+            // Clear previous page after animation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                previousPage = nil
+            }
+        }
+    }
+
+    private func createNewPageWithDraggedIcon() {
+        guard let draggingApp = draggingApp else { return }
+
+        // Remove the dragged app from current page
+        var updatedApps = allApps
+        if let index = updatedApps.firstIndex(where: { $0.id == draggingApp.id }) {
+            updatedApps.remove(at: index)
+            // Insert at the beginning of the new page
+            updatedApps.insert(draggingApp, at: 0)
+
+            // Update state
+            allApps = updatedApps
+
+            // Update app order
+            let newOrder = updatedApps.map { $0.bundleIdentifier }
+            appOrder = newOrder
+
+            // Persist the new order
+            Task {
+                try? await persistOrder(newOrder, namesById: Dictionary(uniqueKeysWithValues: updatedApps.map { ($0.bundleIdentifier, $0) }))
+            }
+
+            // Navigate to the new page (should be the last page now)
+            let newPageIndex = appPages.count - 1
+            navigateToPage(newPageIndex)
+        }
     }
 }
 
