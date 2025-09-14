@@ -58,7 +58,7 @@ struct tahoe_app_libraryApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultSize(width: primaryScreen()?.frame.width ?? 800, height: primaryScreen()?.frame.height ?? 600)
-        .modelContainer(for: [AppEntry.self])
+        .modelContainer(for: [AppEntry.self, FolderEntry.self])
     }
 }
 

@@ -15,3 +15,17 @@ final class AppEntry {
 }
 
 
+@Model
+final class FolderEntry {
+    var idString: String
+    var name: String
+    var childBundleIds: [String]
+
+    init(idString: String = UUID().uuidString, name: String, childBundleIds: [String]) {
+        self.idString = idString
+        self.name = name
+        self.childBundleIds = childBundleIds
+    }
+}
+
+
