@@ -14,24 +14,24 @@ import SwiftData
 struct ContentView: View {
     @State var search: String = ""
     @FocusState private var isSearchFocused: Bool
-    @State private var allApps: [AppInfo] = []
+    @State var allApps: [AppInfo] = []
     @State private var cancellables: Set<AnyCancellable> = []
-    @State private var currentPage: Int = 0
-    @State private var dragTranslation: CGFloat = 0
-    @State private var previousPage: Int? = nil
-    @State private var appOrder: [String] = [] // bundleIdentifier order cache
+    @State var currentPage: Int = 0
+    @State var dragTranslation: CGFloat = 0
+    @State var previousPage: Int? = nil
+    @State var appOrder: [String] = [] // bundleIdentifier order cache
     @Environment(\.modelContext) private var modelContext
     @Query(sort: [SortDescriptor(\AppEntry.order, order: .forward)]) private var storedEntries: [AppEntry]
     @State private var isOptionDown: Bool = false
     @State private var appIsActive: Bool = true
-    @State private var draggingApp: AppInfo? = nil
+    @State var draggingApp: AppInfo? = nil
     @State private var dragLocation: CGPoint = .zero
-    @State private var dragPop: Bool = false
+    @State var dragPop: Bool = false
     @State private var overlayAppearPhase: Bool = false
     @State private var dropFadeOut: Bool = false
-    @State private var previewPosition: CGPoint = .zero
-    @State private var showPreview: Bool = false
-    @State private var targetDropIndex: Int? = nil
+    @State var previewPosition: CGPoint = .zero
+    @State var showPreview: Bool = false
+    @State var targetDropIndex: Int? = nil
     @State private var hasNavigatedLeft: Bool = false
     @State private var hasNavigatedRight: Bool = false
     @State private var showLeftGlow: Bool = false
@@ -43,31 +43,13 @@ struct ContentView: View {
         
     var body: some View {
         ZStack {
-            // Window edge glows during drag (behind content) - absolute positioning
-            if draggingApp != nil {
-                if let screenFrame = NSScreen.main?.frame {
-                    // Left glow - positioned at edge so blur extends into screen (fade animation)
-                    Ellipse()
-                        .fill(Color.white)
-                        .frame(width: 200, height: screenFrame.height) // Oval shape - wider for better blur coverage
-                        .position(x: -45, y: screenFrame.height / 2) // Adjusted position for oval shape
-                        .blur(radius: 40)
-                        .allowsHitTesting(false)
-                        .opacity(leftGlowIntensity)
-                        .animation(.easeInOut(duration: 0.3), value: leftGlowIntensity)
-
-                    // Right glow - positioned at edge so blur extends into screen (fade animation)
-                    Ellipse()
-                        .fill(Color.white)
-                        .frame(width: 200, height: screenFrame.height) // Oval shape - wider for better blur coverage
-                        .position(x: screenFrame.width, y: screenFrame.height / 2) // Adjusted position for oval shape
-                        .blur(radius: 40)
-                        .allowsHitTesting(false)
-                        .opacity(rightGlowIntensity)
-                        .animation(.easeInOut(duration: 0.3), value: rightGlowIntensity)
-                        .animation(.easeInOut(duration: 0.3), value: showRightGlow)
-                }
-            }
+            EdgeGlowOverlay(
+                isVisible: draggingApp != nil,
+                showLeftGlow: showLeftGlow,
+                showRightGlow: showRightGlow,
+                leftGlowIntensity: leftGlowIntensity,
+                rightGlowIntensity: rightGlowIntensity
+            )
 
             VStack(alignment: .center) {
                 TextField("Search", text: $search)
@@ -325,38 +307,17 @@ struct ContentView: View {
                 }
 
                 // Drag preview square
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.blue.opacity(0.3))
-                    .frame(width: 96, height: 96)
-                    .position(previewPosition)
-                    .allowsHitTesting(false)
-                    .opacity(showPreview ? 1.0 : 0.0)
-                    .scaleEffect(showPreview ? 1.0 : 0.9)
-                    .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: previewPosition)
-                    .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: showPreview)
+                DragPreviewSquare(position: previewPosition, isVisible: showPreview)
                 // Floating dragged icon overlay (on top)
                 if let draggingApp {
-                    let nsImage = IconProvider.cachedHighResIcon(bundleId: draggingApp.bundleIdentifier, appPath: draggingApp.url.path, pointSize: 96)
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .renderingMode(.original)
-                        .interpolation(.high)
-                        .frame(width: 96, height: 96)
-                        .cornerRadius(12)
-                        .jiggle2(id: draggingApp.bundleIdentifier, active: appIsActive && isOptionDown)
-                        .scaleEffect(dropFadeOut ? 0.0 : (overlayAppearPhase ? (dragPop ? 1.24 : 1.18) : 0.85))
-                        .opacity(overlayAppearPhase ? 1.0 : 0.0)
-                        .blur(radius: overlayAppearPhase && !dropFadeOut ? 0.0 : 2.0)
-
-
-                        // Neutral removal transition so our explicit scale-to-zero drives the exit
-                        .transition(.asymmetric(
-                            insertion: .scale.combined(with: .opacity),
-                            removal: .identity
-                        ))
-                        .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 8)
-                        .position(dragLocation)
-                        .allowsHitTesting(false)
+                    DraggedIconOverlay(
+                        app: draggingApp,
+                        isActive: appIsActive && isOptionDown,
+                        isDropFadingOut: dropFadeOut,
+                        appearPhase: overlayAppearPhase,
+                        popScale: dragPop,
+                        position: dragLocation
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -412,11 +373,6 @@ struct ContentView: View {
         // No per-frame timer; jiggle2 uses repeatForever internally and we react to flagsChanged
     }
 
-    private var filteredApps: [AppInfo] {
-        guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return allApps }
-        return allApps.filter { $0.name.localizedCaseInsensitiveContains(search) }
-    }
-
     private func loadApps() async {
         let apps = await AppDiscovery.loadAllApplications()
         // Load order from SwiftData; if empty, fall back to UserDefaults for first migration
@@ -448,7 +404,7 @@ struct ContentView: View {
         }
     }
 
-    private func persistOrder(_ order: [String], namesById: [String: AppInfo]) async throws {
+    func persistOrder(_ order: [String], namesById: [String: AppInfo]) async throws {
         // Remove all and replace for simplicity (small dataset)
         for entry in storedEntries { modelContext.delete(entry) }
         var idx = 0
@@ -460,161 +416,9 @@ struct ContentView: View {
         }
         try modelContext.save()
     }
-
-    private var gridColumns: [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: 100, maximum: 400), spacing: 24, alignment: .center), count: 6)
-    }
-
-    private var appPages: [[AppInfo]] {
-        let items = filteredApps
-        let pageSize = 36 // 6 columns x 6 rows
-        guard !items.isEmpty else { return [[]] }
-        var pages: [[AppInfo]] = []
-        var index = 0
-        while index < items.count {
-            let end = min(index + pageSize, items.count)
-            pages.append(Array(items[index..<end]))
-            index = end
-        }
-        return pages
-    }
-
-    private func navigateToPage(_ pageIndex: Int) {
-        let clampedIndex = max(0, min(pageIndex, appPages.count - 1))
-        if clampedIndex != currentPage {
-            previousPage = currentPage
-            withAnimation(.interpolatingSpring(stiffness: 200, damping: 22)) {
-                currentPage = clampedIndex
-                dragTranslation = 0
-            }
-            // Clear previous page after animation
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                previousPage = nil
-            }
-        }
-    }
-
-    private func createNewPageWithDraggedIcon() {
-        guard let draggingApp = draggingApp else { return }
-
-        // Remove the dragged app from current page
-        var updatedApps = allApps
-        if let index = updatedApps.firstIndex(where: { $0.id == draggingApp.id }) {
-            updatedApps.remove(at: index)
-            // Insert at the beginning of the new page
-            updatedApps.insert(draggingApp, at: 0)
-
-            // Update state
-            allApps = updatedApps
-
-            // Update app order
-            let newOrder = updatedApps.map { $0.bundleIdentifier }
-            appOrder = newOrder
-
-            // Persist the new order
-            Task {
-                try? await persistOrder(newOrder, namesById: Dictionary(uniqueKeysWithValues: updatedApps.map { ($0.bundleIdentifier, $0) }))
-            }
-
-            // Navigate to the new page (should be the last page now)
-            let newPageIndex = appPages.count - 1
-            navigateToPage(newPageIndex)
-        }
-    }
 }
 
-// MARK: - Icon scaling helpers
-extension ContentView {
-    private func iconScale(for app: AppInfo) -> CGFloat {
-        // No scale when not interacting
-        if draggingApp?.id == app.id {
-            // Active drag: pop slightly higher when dragPop is true
-            return dragPop ? 1.24 : 1.18
-        }
-        // No long-press-based pre-scales or pop anymore
-        return 1.0
-    }
-
-    private func cellScale(for app: AppInfo) -> CGFloat {
-        // Subtle scale down when the item is being dragged (applies to original cell)
-        if draggingApp?.id == app.id {
-            return 0.85
-        }
-        return 1.0
-    }
-
-    private func cellBlur(for app: AppInfo) -> CGFloat {
-        // Subtle blur when the item is being dragged (applies to original cell)
-        if draggingApp?.id == app.id {
-            return 2.0
-        }
-        return 0.0
-    }
-
-    private func updateDragPreview(for location: CGPoint, in geo: GeometryProxy, page: [AppInfo], cellHeight: CGFloat, rowSpacing: CGFloat) {
-        let pageWidth = geo.size.width
-        let innerVerticalPadding: CGFloat = 10
-        let _ = 32
-        let _ = geo.size.height - (innerVerticalPadding * 2)
-        let columns = 6
-
-        let totalHorizontalPadding: CGFloat = 40
-        let totalColumnSpacing: CGFloat = 24 * 5
-        let availableWidth = pageWidth - totalHorizontalPadding - totalColumnSpacing
-        let cellWidth = availableWidth / CGFloat(columns)
-
-        let gridX = location.x - 20
-        let gridY = location.y - innerVerticalPadding
-
-        let totalGridHeight = (cellHeight + rowSpacing) * 6 - rowSpacing
-        let totalGridWidth = cellWidth * 6 + 24 * 5
-
-        if gridX >= 0 && gridX <= totalGridWidth && gridY >= 0 && gridY <= totalGridHeight {
-            let col = min(Int(gridX / (cellWidth + 24)), columns - 1)
-            let row = min(Int(gridY / (cellHeight + rowSpacing)), 5)
-
-            let targetIndex = row * columns + col
-
-            if targetIndex < 36 {
-                let cellCenterX = 20 + CGFloat(col) * (cellWidth + 24) + cellWidth / 2
-                let cellCenterY = innerVerticalPadding + CGFloat(row) * (cellHeight + rowSpacing) + cellHeight / 2
-
-                previewPosition = CGPoint(x: cellCenterX, y: cellCenterY)
-                targetDropIndex = currentPage * 36 + targetIndex
-                showPreview = true
-            } else {
-                showPreview = false
-                targetDropIndex = nil
-            }
-        } else {
-            showPreview = false
-            targetDropIndex = nil
-        }
-    }
-
-    private func reorderApps(from sourceIndex: Int, to targetIndex: Int) {
-        var apps = allApps
-        let app = apps.remove(at: sourceIndex)
-        apps.insert(app, at: targetIndex)
-
-        let newOrder = apps.map { $0.bundleIdentifier }
-
-        appOrder = newOrder
-        allApps = apps
-
-        Task {
-            try? await persistOrder(newOrder, namesById: Dictionary(uniqueKeysWithValues: apps.map { ($0.bundleIdentifier, $0) }))
-        }
-    }
-
-    private func isTargetApp(_ app: AppInfo) -> Bool {
-        guard let targetIndex = targetDropIndex,
-              let appIndex = allApps.firstIndex(where: { $0.id == app.id }) else {
-            return false
-        }
-        return appIndex == targetIndex
-    }
-}
+// MARK: - Preview
 
 #Preview {
     ContentView()
