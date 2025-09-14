@@ -76,7 +76,10 @@ struct ContentView: View {
                                                     .jiggle2(id: app.bundleIdentifier, active: appIsActive && isOptionDown)
                                                     .scaleEffect(iconScale(for: app))
                                                     .scaleEffect(cellScale(for: app))
+                                                    .scaleEffect(isTargetApp(app) ? 0.85 : 1.0)
+                                                    .opacity(isTargetApp(app) ? 0.6 : 1.0)
                                                     .blur(radius: cellBlur(for: app))
+                                                    .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: targetDropIndex)
                                                     .allowsHitTesting(isOptionDown)
                                                     .gesture(
                                                         DragGesture(minimumDistance: 0, coordinateSpace: .named("gridSpace"))
@@ -129,6 +132,8 @@ struct ContentView: View {
                                                     .font(.system(size: 12))
                                                     .lineLimit(1)
                                                     .truncationMode(.tail)
+                                                    .opacity(isTargetApp(app) ? 0.0 : 1.0)
+                                                    .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: targetDropIndex)
                                             }
                                             .frame(maxWidth: .infinity)
                                             .frame(height: cellHeight)
@@ -208,7 +213,17 @@ struct ContentView: View {
                     )
                     .coordinateSpace(name: "gridSpace")
                 }
-                // Floating dragged icon overlay
+                // Drag preview square
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.blue.opacity(0.3))
+                    .frame(width: 96, height: 96)
+                    .position(previewPosition)
+                    .allowsHitTesting(false)
+                    .opacity(showPreview ? 1.0 : 0.0)
+                    .scaleEffect(showPreview ? 1.0 : 0.9)
+                    .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: previewPosition)
+                    .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: showPreview)
+                // Floating dragged icon overlay (on top)
                 if let draggingApp {
                     let nsImage = IconProvider.cachedHighResIcon(bundleId: draggingApp.bundleIdentifier, appPath: draggingApp.url.path, pointSize: 96)
                     Image(nsImage: nsImage)
@@ -221,8 +236,8 @@ struct ContentView: View {
                         .scaleEffect(dropFadeOut ? 0.0 : (overlayAppearPhase ? (dragPop ? 1.24 : 1.18) : 0.85))
                         .opacity(overlayAppearPhase ? 1.0 : 0.0)
                         .blur(radius: overlayAppearPhase && !dropFadeOut ? 0.0 : 2.0)
-                        
-                        
+
+
                         // Neutral removal transition so our explicit scale-to-zero drives the exit
                         .transition(.asymmetric(
                             insertion: .scale.combined(with: .opacity),
@@ -231,15 +246,6 @@ struct ContentView: View {
                         .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 8)
                         .position(dragLocation)
                         .allowsHitTesting(false)
-                }
-                // Drag preview square
-                if showPreview {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.blue.opacity(0.3))
-                        .frame(width: 96, height: 96)
-                        .position(previewPosition)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -440,6 +446,14 @@ extension ContentView {
         Task {
             try? await persistOrder(newOrder, namesById: Dictionary(uniqueKeysWithValues: apps.map { ($0.bundleIdentifier, $0) }))
         }
+    }
+
+    private func isTargetApp(_ app: AppInfo) -> Bool {
+        guard let targetIndex = targetDropIndex,
+              let appIndex = allApps.firstIndex(where: { $0.id == app.id }) else {
+            return false
+        }
+        return appIndex == targetIndex
     }
 }
 
