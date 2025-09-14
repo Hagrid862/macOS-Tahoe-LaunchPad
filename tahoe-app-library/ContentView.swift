@@ -64,7 +64,7 @@ struct ContentView: View {
                             VStack(spacing: 0) {
                                 if isActive || (isDragging && isTarget) || (!isDragging && isExiting) {
                                     LazyVGrid(columns: gridColumns, alignment: .center, spacing: rowSpacing) {
-                                        ForEach(page) { app in
+                                        ForEach(page, id: \.bundleIdentifier) { app in
                                             VStack(spacing: 8) {
                                                 let nsImage = IconProvider.cachedHighResIcon(bundleId: app.bundleIdentifier, appPath: app.url.path, pointSize: 96)
                                                 Image(nsImage: nsImage)
@@ -135,6 +135,7 @@ struct ContentView: View {
                                                     .opacity(isTargetApp(app) ? 0.0 : 1.0)
                                                     .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: targetDropIndex)
                                             }
+                                            .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: allApps)
                                             .frame(maxWidth: .infinity)
                                             .frame(height: cellHeight)
                                             .opacity(draggingApp?.id == app.id ? 0.0 : 1.0)
