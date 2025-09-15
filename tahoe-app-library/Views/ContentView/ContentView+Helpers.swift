@@ -2,8 +2,16 @@ import SwiftUI
 
 extension ContentView {
     var filteredApps: [AppInfo] {
-        guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return allApps }
-        return allApps.filter { $0.name.localizedCaseInsensitiveContains(search) }
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return allApps }
+
+        // Normalize by removing spaces and lowercasing so "appstore" matches "App Store"
+        let normalizedQuery = query.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).lowercased()
+
+        return allApps.filter { app in
+            let normalizedName = app.name.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).lowercased()
+            return normalizedName.contains(normalizedQuery) || app.name.localizedCaseInsensitiveContains(query)
+        }
     }
 
     var gridColumns: [GridItem] {
