@@ -41,6 +41,8 @@ struct ContentView: View {
     @State private var rightGlowIntensity: CGFloat = 1.0
     @State private var scrollAccumulator: CGFloat = 0
     @State private var lastScrollNavAt: CFTimeInterval = 0
+    @State private var highlightedAppId: String? = nil
+    @State private var keyMonitor: Any? = nil
 
     
         
@@ -69,6 +71,17 @@ struct ContentView: View {
                     )
                     .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
                     .focusEffectDisabled()
+                    .onSubmit {
+                        if let highlighted = highlightedAppId,
+                           let app = allApps.first(where: { $0.id == highlighted }) {
+                            launchApp(app)
+                        } else if let first = filteredApps.first {
+                            launchApp(first)
+                        }
+                    }
+                    .onChange(of: search) { _, _ in
+                        updateHighlightedApp()
+                    }
                 ZStack(alignment: .center) {
                     GeometryReader { geo in
                         let pageWidth = geo.size.width
@@ -102,6 +115,17 @@ struct ContentView: View {
                                                             .interpolation(.high)
                                                             .frame(width: 96, height: 96)
                                                             .cornerRadius(12)
+                                                            .padding(6)
+                                                            .background(
+                                                                ZStack {
+                                                                    RoundedRectangle(cornerRadius: 32)
+                                                                        .fill(Color.white)
+                                                                        .opacity(app.id == highlightedAppId ? 0.10 : 0.0)
+                                                                        .scaleEffect(app.id == highlightedAppId ? 1.0 : 0.8)
+                                                                        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: app.id == highlightedAppId)
+                                                                }
+                                                            )
+                                                            .clipShape(RoundedRectangle(cornerRadius: 32))
                                                             .jiggle2(id: app.bundleIdentifier, active: appIsActive && isOptionDown)
                                                             .scaleEffect(iconScale(for: app))
                                                             .scaleEffect(cellScale(for: app))
@@ -141,11 +165,11 @@ struct ContentView: View {
                                                                             }
                                                                         }
                                                                         dragLocation = value.location
-                                                                        
+
                                                                             // Check for navigation zone entry (relative to window edges)
                                                                             // Convert local drag location to window coordinates
                                                                         let windowWidth = NSScreen.main?.frame.width ?? 1920
-                                                                        
+
                                                                             // Get the window and convert coordinates properly
                                                                         var windowPoint = CGPoint.zero
                                                                         if NSApp.windows.first(where: { $0.isVisible }) != nil {
@@ -159,16 +183,16 @@ struct ContentView: View {
                                                                                 // Fallback to approximation if window not found
                                                                             windowPoint = CGPoint(x: value.location.x + 30, y: value.location.y + 20)
                                                                         }
-                                                                        
+
                                                                             // Update glow intensity based on proximity to edges
                                                                             // Both sides start at 200px from edge, max intensity at 50px from edge
                                                                         let glowActivationDistance: CGFloat = 200.0
                                                                         let glowMaxIntensityDistance: CGFloat = 50.0
-                                                                        
+
                                                                             // Better visibility with smooth animation - more visible but still elegant
                                                                         let baseGlowIntensity: CGFloat = 0.15 // More visible base intensity
                                                                         let maxGlowIntensity: CGFloat = 0.5 // Good max intensity for smooth animation
-                                                                        
+
                                                                             // Calculate intensity for left glow with smooth animation
                                                                         if showLeftGlow {
                                                                             if windowPoint.x <= glowActivationDistance {
@@ -180,7 +204,7 @@ struct ContentView: View {
                                                                         } else {
                                                                             leftGlowIntensity = 0.0
                                                                         }
-                                                                        
+
                                                                             // Calculate intensity for right glow with smooth animation
                                                                         if showRightGlow {
                                                                             if windowPoint.x >= (windowWidth - glowActivationDistance) {
@@ -193,7 +217,7 @@ struct ContentView: View {
                                                                         } else {
                                                                             rightGlowIntensity = 0.0
                                                                         }
-                                                                        
+
                                                                             // Page switching happens at 100px from edge (within the glow area)
                                                                         let pageSwitchThreshold: CGFloat = 100.0
                                                                         if windowPoint.x < pageSwitchThreshold && currentPage > 0 && !hasNavigatedLeft {
@@ -207,7 +231,7 @@ struct ContentView: View {
                                                                                 createNewPageWithDraggedIcon()
                                                                             }
                                                                         }
-                                                                        
+
                                                                         updateDragPreview(for: value.location, in: geo, page: page, cellHeight: cellHeight, rowSpacing: rowSpacing)
                                                                     }
                                                                     .onEnded { _ in
@@ -225,7 +249,7 @@ struct ContentView: View {
                                                                            targetIndex != currentIndex {
                                                                             reorderApps(from: currentIndex, to: targetIndex)
                                                                         }
-                                                                        
+
                                                                         withAnimation(.easeOut(duration: 0.28)) {
                                                                             dropFadeOut = true
                                                                         }
@@ -411,7 +435,7 @@ struct ContentView: View {
                                     }
                                     .onEnded { value in
                                         if draggingApp != nil { return }
-                                        let threshold = pageWidth * 0.18
+                                        let threshold = pageWidth * 0.38
                                         let predicted = value.predictedEndTranslation.width
                                         var targetPage = currentPage
                                         if predicted < -threshold || value.translation.width < -threshold {
@@ -559,6 +583,36 @@ struct ContentView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     isSearchFocused = true
                 }
+
+                // Monitor keyDown for arrow navigation when search is focused
+                keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    // Only intercept when the search field has focus
+                    if isSearchFocused {
+                        switch event.keyCode {
+                        case 126: // up
+                            moveHighlight(dx: 0, dy: -1)
+                            return nil
+                        case 125: // down
+                            moveHighlight(dx: 0, dy: 1)
+                            return nil
+                        case 123: // left
+                            moveHighlight(dx: -1, dy: 0)
+                            return nil
+                        case 124: // right
+                            moveHighlight(dx: 1, dy: 0)
+                            return nil
+                        default:
+                            break
+                        }
+                    }
+                    return event
+                }
+            }
+            .onDisappear {
+                if let monitor = keyMonitor {
+                    NSEvent.removeMonitor(monitor)
+                    keyMonitor = nil
+                }
             }
                 // Keep existing listeners
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -655,6 +709,7 @@ struct ContentView: View {
         await MainActor.run {
             self.appOrder = finalOrder
             self.allApps = ordered
+            self.updateHighlightedApp()
         }
     }
 
@@ -671,16 +726,65 @@ struct ContentView: View {
         try modelContext.save()
     }
 
+    func updateHighlightedApp() {
+        let q = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else {
+            highlightedAppId = nil
+            return
+        }
+
+        if let first = filteredApps.first {
+            highlightedAppId = first.id
+            if let idx = allApps.firstIndex(where: { $0.id == first.id }) {
+                let page = idx / 36
+                navigateToPage(page)
+            }
+        } else {
+            highlightedAppId = nil
+        }
+    }
+
+    func moveHighlight(dx: Int, dy: Int) {
+        let items = filteredApps
+        guard !items.isEmpty else { highlightedAppId = nil; return }
+
+        let columns = 6
+
+        var currentIndex = 0
+        if let highlighted = highlightedAppId, let idx = items.firstIndex(where: { $0.id == highlighted }) {
+            currentIndex = idx
+        }
+
+        // Calculate new index using grid movement
+        var newIndex = currentIndex + dx + dy * columns
+        if newIndex < 0 { newIndex = 0 }
+        if newIndex >= items.count { newIndex = items.count - 1 }
+
+        let app = items[newIndex]
+        highlightedAppId = app.id
+
+        if let idxInAll = allApps.firstIndex(where: { $0.id == app.id }) {
+            let page = idxInAll / 36
+            navigateToPage(page)
+        }
+    }
+
     private func launchApp(_ app: AppInfo) {
         // Launch the application using NSWorkspace
         let workspace = NSWorkspace.shared
         do {
-            try workspace.launchApplication(at: app.url, options: [], configuration: [:])
-            // Close the window after launching the app
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if let window = NSApp.windows.first(where: { $0.isVisible }) {
-                    window.close()
-                   }
+            let configuration = NSWorkspace.OpenConfiguration()
+            workspace.openApplication(at: app.url, configuration: configuration) { appProxy, error in
+                if let error = error {
+                    print("Failed to open app \(app.name): \(error)")
+                    return
+                }
+                // Close the window after launching the app
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if let window = NSApp.windows.first(where: { $0.isVisible }) {
+                        window.close()
+                    }
+                }
             }
         } catch {
             print("Failed to launch app \(app.name): \(error)")
