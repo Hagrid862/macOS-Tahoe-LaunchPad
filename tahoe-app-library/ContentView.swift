@@ -56,9 +56,19 @@ struct ContentView: View {
             
             VStack(alignment: .center) {
                 TextField("Search", text: $search)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($isSearchFocused)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                     .frame(maxWidth: 300)
+                    .focused($isSearchFocused)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    )
+                    .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
+                    .focusEffectDisabled()
                 ZStack(alignment: .center) {
                     GeometryReader { geo in
                         let pageWidth = geo.size.width
@@ -670,7 +680,7 @@ struct ContentView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 if let window = NSApp.windows.first(where: { $0.isVisible }) {
                     window.close()
-                }
+                   }
             }
         } catch {
             print("Failed to launch app \(app.name): \(error)")
