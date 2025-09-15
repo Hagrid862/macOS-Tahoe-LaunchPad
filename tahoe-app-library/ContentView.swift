@@ -9,7 +9,6 @@ import SwiftUI
 import AppKit
 import Combine
 import SwiftData
- 
 
 struct ContentView: View {
     @State var search: String = ""
@@ -45,6 +44,10 @@ struct ContentView: View {
     @State private var keyMonitor: Any? = nil
     @State private var hoveredAppId: String? = nil
     @State var hiddenBundleIds: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "hiddenApps") ?? [])
+    @State var previewTargetIndex: Int? = nil
+    @State var previewHeldSince: CFTimeInterval? = nil
+    @State var blinkVisible: Bool = true
+    @State var blinkTask: Task<Void, Never>? = nil
     @State private var showHiddenMenu: Bool = false
 
     
@@ -668,7 +671,7 @@ struct ContentView: View {
                         }
                         
                             // Drag preview square
-                        DragPreviewSquare(position: previewPosition, isVisible: showPreview)
+                        DragPreviewSquare(position: previewPosition, isVisible: showPreview, blinkVisible: blinkVisible)
                             // Floating dragged icon overlay (on top)
                         if let draggingApp {
                             DraggedIconOverlay(

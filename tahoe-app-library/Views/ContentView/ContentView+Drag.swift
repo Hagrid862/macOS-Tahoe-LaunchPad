@@ -51,15 +51,57 @@ extension ContentView {
                 let cellCenterY = innerVerticalPadding + CGFloat(row) * (cellHeight + rowSpacing) + cellHeight / 2
 
                 previewPosition = CGPoint(x: cellCenterX, y: cellCenterY)
-                targetDropIndex = currentPage * 36 + targetIndex
-                showPreview = true
+                let globalTarget = currentPage * 36 + targetIndex
+                // Update preview target and manage held/blink state
+                if targetDropIndex != globalTarget {
+                    // preview target changed
+                    targetDropIndex = globalTarget
+                    showPreview = true
+                    // start holding timer
+                    previewTargetIndex = globalTarget
+                    previewHeldSince = CFAbsoluteTimeGetCurrent()
+                    // cancel any existing blinking task
+                    blinkTask?.cancel()
+                    blinkTask = nil
+                    blinkVisible = true
+                } else {
+                    // same target, keep preview visible
+                    showPreview = true
+                    // if held long enough, start blinking
+                    if let held = previewHeldSince {
+                        let now = CFAbsoluteTimeGetCurrent()
+                        if blinkTask == nil && (now - held) >= 5.0 {
+                            // start blinking task
+                            blinkTask = Task {
+                                while !Task.isCancelled {
+                                    await MainActor.run {
+                                        blinkVisible.toggle()
+                                    }
+                                    try? await Task.sleep(nanoseconds: 500_000_000)
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 showPreview = false
                 targetDropIndex = nil
+                // reset preview hold/blink state
+                previewTargetIndex = nil
+                previewHeldSince = nil
+                blinkTask?.cancel()
+                blinkTask = nil
+                blinkVisible = true
             }
         } else {
             showPreview = false
             targetDropIndex = nil
+            // reset preview hold/blink state
+            previewTargetIndex = nil
+            previewHeldSince = nil
+            blinkTask?.cancel()
+            blinkTask = nil
+            blinkVisible = true
         }
     }
 
