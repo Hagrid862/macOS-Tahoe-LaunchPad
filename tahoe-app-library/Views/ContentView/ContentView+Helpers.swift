@@ -3,12 +3,13 @@ import SwiftUI
 extension ContentView {
     var filteredApps: [AppInfo] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return allApps }
+        guard !query.isEmpty else { return allApps.filter { !hiddenBundleIds.contains($0.bundleIdentifier) } }
 
         // Normalize by removing spaces and lowercasing so "appstore" matches "App Store"
         let normalizedQuery = query.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).lowercased()
 
         return allApps.filter { app in
+            guard !hiddenBundleIds.contains(app.bundleIdentifier) else { return false }
             let normalizedName = app.name.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).lowercased()
             return normalizedName.contains(normalizedQuery) || app.name.localizedCaseInsensitiveContains(query)
         }

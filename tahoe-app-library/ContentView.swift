@@ -43,6 +43,8 @@ struct ContentView: View {
     @State private var lastScrollNavAt: CFTimeInterval = 0
     @State private var highlightedAppId: String? = nil
     @State private var keyMonitor: Any? = nil
+    @State private var hoveredAppId: String? = nil
+    @State var hiddenBundleIds: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "hiddenApps") ?? [])
 
     
         
@@ -57,31 +59,65 @@ struct ContentView: View {
             )
             
             VStack(alignment: .center) {
-                TextField("Search", text: $search)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: 300)
-                    .focused($isSearchFocused)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-                    .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
-                    .focusEffectDisabled()
-                    .onSubmit {
-                        if let highlighted = highlightedAppId,
-                           let app = allApps.first(where: { $0.id == highlighted }) {
-                            launchApp(app)
-                        } else if let first = filteredApps.first {
-                            launchApp(first)
+                HStack(spacing: 10) {
+                    // Hidden apps menu (shown only while Option is held)
+                    let hiddenApps = allApps.filter { hiddenBundleIds.contains($0.bundleIdentifier) }
+                    // Keep space reserved so TextField doesn't move; animate visibility
+                    Menu {
+                        if hiddenApps.isEmpty {
+                            Text("No hidden apps")
+                        } else {
+                            ForEach(hiddenApps, id: \.id) { app in
+                                Button(app.name) { toggleHide(app) }
+                            }
                         }
+                    } label: {
+                        ZStack {
+                            Image(systemName: "eye.slash.fill")
+                                .foregroundColor(.white)
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .frame(width: 32, height: 32)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
                     }
-                    .onChange(of: search) { _, _ in
-                        updateHighlightedApp()
-                    }
+                    .buttonStyle(.plain)
+                    .opacity(isOptionDown ? 1.0 : 0.0)
+                    .scaleEffect(isOptionDown ? 1.0 : 0.8)
+                    .animation(.easeOut(duration: 0.18), value: isOptionDown)
+                    .allowsHitTesting(isOptionDown)
+
+                    TextField("Search", text: $search)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: 300)
+                        .focused($isSearchFocused)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
+                        .focusEffectDisabled()
+                        .onSubmit {
+                            if let highlighted = highlightedAppId,
+                               let app = allApps.first(where: { $0.id == highlighted }) {
+                                launchApp(app)
+                            } else if let first = filteredApps.first {
+                                launchApp(first)
+                            }
+                        }
+                        .onChange(of: search) { _, _ in
+                            updateHighlightedApp()
+                        }
+                }
                 ZStack(alignment: .center) {
                     GeometryReader { geo in
                         let pageWidth = geo.size.width
@@ -109,175 +145,221 @@ struct ContentView: View {
                                                 ForEach(page, id: \.bundleIdentifier) { app in
                                                     VStack(spacing: 8) {
                                                         let nsImage = IconProvider.cachedHighResIcon(bundleId: app.bundleIdentifier, appPath: app.url.path, pointSize: 96)
-                                                        Image(nsImage: nsImage)
-                                                            .resizable()
-                                                            .renderingMode(.original)
-                                                            .interpolation(.high)
-                                                            .frame(width: 96, height: 96)
-                                                            .cornerRadius(12)
+                                                        ZStack(alignment: .topTrailing) {
+                                                            Image(nsImage: nsImage)
+                                                                .resizable()
+                                                                .renderingMode(.original)
+                                                                .interpolation(.high)
+                                                                .frame(width: 96, height: 96)
+                                                                .cornerRadius(12)
+                                                                .padding(6)
+                                                                .background(
+                                                                    ZStack {
+                                                                        // Only show the highlight view when this icon is highlighted so we can transition it
+                                                                        if app.id == highlightedAppId {
+                                                                            if #available(macOS 26.0, *) {
+                                                                                RoundedRectangle(cornerRadius: 32)
+                                                                                    .glassEffect(.regular)
+                                                                                    .tint(Color.white.opacity(0.12))
+                                                                                    .transition(.scale.combined(with: .opacity))
+                                                                            } else {
+                                                                                RoundedRectangle(cornerRadius: 32)
+                                                                                    .fill(Color.white.opacity(0.10))
+                                                                                    .transition(.scale.combined(with: .opacity))
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                )
+                                                                .clipShape(RoundedRectangle(cornerRadius: 32))
+                                                                .jiggle2(id: app.bundleIdentifier, active: appIsActive && isOptionDown)
+                                                                .scaleEffect(iconScale(for: app))
+                                                                .scaleEffect(cellScale(for: app))
+                                                                .scaleEffect(isTargetApp(app) ? 0.85 : 1.0)
+                                                                .scaleEffect(pressedAppId == app.id ? 0.9 : 1.0)
+                                                                .opacity(isTargetApp(app) ? 0.6 : 1.0)
+                                                                .blur(radius: cellBlur(for: app))
+                                                                .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: targetDropIndex)
+                                                                .animation(.easeOut(duration: 0.1), value: pressedAppId == app.id)
+                                                                .allowsHitTesting(true)
+                                                                .gesture(
+                                                                    DragGesture(minimumDistance: 0, coordinateSpace: .named("GlobalDragSpace"))
+                                                                        .onChanged { value in
+                                                                            // Track press state for CSS-like active animation
+                                                                            if pressedAppId == nil {
+                                                                                pressedAppId = app.id
+                                                                            }
+
+                                                                            guard isOptionDown else { return }
+                                                                            if draggingApp == nil {
+                                                                                draggingApp = app
+                                                                                dragPop = true
+                                                                                dropFadeOut = false
+                                                                                overlayAppearPhase = false
+                                                                                    // Show glows when starting drag (left glow only if not on first page)
+                                                                                showLeftGlow = currentPage > 0
+                                                                                showRightGlow = true
+                                                                                DispatchQueue.main.async {
+                                                                                    withAnimation(.spring(response: 0.44, dampingFraction: 0.8)) {
+                                                                                        overlayAppearPhase = true
+                                                                                    }
+                                                                                }
+                                                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                                                                                    withAnimation(.spring(response: 0.15, dampingFraction: 0.65)) {
+                                                                                        dragPop = false
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            dragLocation = value.location
+                                                                            
+                                                                                // Check for navigation zone entry (relative to window edges)
+                                                                                // Convert local drag location to window coordinates
+                                                                            let windowWidth = NSScreen.main?.frame.width ?? 1920
+                                                                            
+                                                                                // Get the window and convert coordinates properly
+                                                                            var windowPoint = CGPoint.zero
+                                                                            if NSApp.windows.first(where: { $0.isVisible }) != nil {
+                                                                                    // Convert from geometry reader's coordinate space to window coordinates
+                                                                                let globalPoint = geo.frame(in: .global).origin
+                                                                                windowPoint = CGPoint(
+                                                                                    x: value.location.x + globalPoint.x + 30, // account for horizontal padding
+                                                                                    y: value.location.y + globalPoint.y + 20  // account for vertical padding
+                                                                                )
+                                                                            } else {
+                                                                                    // Fallback to approximation if window not found
+                                                                                windowPoint = CGPoint(x: value.location.x + 30, y: value.location.y + 20)
+                                                                            }
+                                                                            
+                                                                                // Update glow intensity based on proximity to edges
+                                                                                // Both sides start at 200px from edge, max intensity at 50px from edge
+                                                                            let glowActivationDistance: CGFloat = 200.0
+                                                                            let glowMaxIntensityDistance: CGFloat = 50.0
+                                                                            
+                                                                                // Better visibility with smooth animation - more visible but still elegant
+                                                                            let baseGlowIntensity: CGFloat = 0.15 // More visible base intensity
+                                                                            let maxGlowIntensity: CGFloat = 0.5 // Good max intensity for smooth animation
+                                                                            
+                                                                                // Calculate intensity for left glow with smooth animation
+                                                                            if showLeftGlow {
+                                                                                if windowPoint.x <= glowActivationDistance {
+                                                                                    let normalizedDistance = max(0, windowPoint.x - glowMaxIntensityDistance) / (glowActivationDistance - glowMaxIntensityDistance)
+                                                                                    leftGlowIntensity = baseGlowIntensity + ((maxGlowIntensity - baseGlowIntensity) * (1.0 - normalizedDistance)) // Smooth animation from base to max
+                                                                                } else {
+                                                                                    leftGlowIntensity = baseGlowIntensity // Base glow when navigation available
+                                                                                }
+                                                                            } else {
+                                                                                leftGlowIntensity = 0.0
+                                                                            }
+                                                                            
+                                                                                // Calculate intensity for right glow with smooth animation
+                                                                            if showRightGlow {
+                                                                                if windowPoint.x >= (windowWidth - glowActivationDistance) {
+                                                                                    let distanceFromRightEdge = windowWidth - windowPoint.x
+                                                                                    let normalizedDistance = max(0, distanceFromRightEdge - glowMaxIntensityDistance) / (glowActivationDistance - glowMaxIntensityDistance)
+                                                                                    rightGlowIntensity = baseGlowIntensity + ((maxGlowIntensity - baseGlowIntensity) * (1.0 - normalizedDistance)) // Smooth animation from base to max
+                                                                                } else {
+                                                                                    rightGlowIntensity = baseGlowIntensity // Base glow when navigation available
+                                                                                }
+                                                                            } else {
+                                                                                rightGlowIntensity = 0.0
+                                                                            }
+                                                                            
+                                                                                // Page switching happens at 100px from edge (within the glow area)
+                                                                            let pageSwitchThreshold: CGFloat = 100.0
+                                                                            if windowPoint.x < pageSwitchThreshold && currentPage > 0 && !hasNavigatedLeft {
+                                                                                hasNavigatedLeft = true
+                                                                                navigateToPage(currentPage - 1)
+                                                                            } else if windowPoint.x > windowWidth - pageSwitchThreshold && !hasNavigatedRight {
+                                                                                hasNavigatedRight = true
+                                                                                if currentPage < appPages.count - 1 {
+                                                                                    navigateToPage(currentPage + 1)
+                                                                                } else {
+                                                                                    createNewPageWithDraggedIcon()
+                                                                                }
+                                                                            }
+                                                                            
+                                                                            updateDragPreview(for: value.location, in: geo, page: page, cellHeight: cellHeight, rowSpacing: rowSpacing)
+                                                                        }
+                                                                        .onEnded { _ in
+                                                                            // Clear press state for CSS-like active animation
+                                                                            pressedAppId = nil
+
+                                                                            // Launch app if it wasn't a drag operation
+                                                                            if !isOptionDown {
+                                                                                launchApp(app)
+                                                                            }
+
+                                                                            if let draggedApp = draggingApp,
+                                                                               let targetIndex = targetDropIndex,
+                                                                               let currentIndex = allApps.firstIndex(where: { $0.id == draggedApp.id }),
+                                                                               targetIndex != currentIndex {
+                                                                                reorderApps(from: currentIndex, to: targetIndex)
+                                                                            }
+
+                                                                            withAnimation(.easeOut(duration: 0.28)) {
+                                                                                dropFadeOut = true
+                                                                            }
+                                                                            dragPop = false
+                                                                            showPreview = false
+                                                                            targetDropIndex = nil
+                                                                            leftGlowIntensity = 0.0
+                                                                            rightGlowIntensity = 0.0
+                                                                            showLeftGlow = false
+                                                                            showRightGlow = false
+                                                                            if draggingApp?.id == app.id {
+                                                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                                                    draggingApp = nil
+                                                                                    overlayAppearPhase = false
+                                                                                    dropFadeOut = false
+                                                                                    hasNavigatedLeft = false
+                                                                                    hasNavigatedRight = false
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                )
+                                                                .animation(.spring(response: 0.44, dampingFraction: 0.8), value: draggingApp?.id)
+
+                                                            // Hide button (no action yet) shown when Option is held and icon hovered
+                                                            let showHide = isOptionDown && hoveredAppId == app.id
+                                                            Button(action: { toggleHide(app) }) {
+                                                                Image(systemName: "eye.slash")
+                                                                    .font(.system(size: 12, weight: .semibold))
+                                                                    .foregroundColor(.white)
+                                                            }
+                                                            .buttonStyle(.plain)
                                                             .padding(6)
                                                             .background(
-                                                                ZStack {
-                                                                    RoundedRectangle(cornerRadius: 32)
-                                                                        .fill(Color.white)
-                                                                        .opacity(app.id == highlightedAppId ? 0.10 : 0.0)
-                                                                        .scaleEffect(app.id == highlightedAppId ? 1.0 : 0.8)
-                                                                        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: app.id == highlightedAppId)
+                                                                Group {
+                                                                    if #available(macOS 26.0, *) {
+                                                                        Circle()
+                                                                            .glassEffect(.clear)
+                                                                    } else {
+                                                                        Circle()
+                                                                            .fill(Color.white.opacity(0.06))
+                                                                    }
                                                                 }
                                                             )
-                                                            .clipShape(RoundedRectangle(cornerRadius: 32))
-                                                            .jiggle2(id: app.bundleIdentifier, active: appIsActive && isOptionDown)
-                                                            .scaleEffect(iconScale(for: app))
-                                                            .scaleEffect(cellScale(for: app))
-                                                            .scaleEffect(isTargetApp(app) ? 0.85 : 1.0)
-                                                            .scaleEffect(pressedAppId == app.id ? 0.9 : 1.0)
-                                                            .opacity(isTargetApp(app) ? 0.6 : 1.0)
-                                                            .blur(radius: cellBlur(for: app))
-                                                            .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: targetDropIndex)
-                                                            .animation(.easeOut(duration: 0.1), value: pressedAppId == app.id)
-                                                            .allowsHitTesting(true)
-                                                            .gesture(
-                                                                DragGesture(minimumDistance: 0, coordinateSpace: .named("GlobalDragSpace"))
-                                                                    .onChanged { value in
-                                                                        // Track press state for CSS-like active animation
-                                                                        if pressedAppId == nil {
-                                                                            pressedAppId = app.id
-                                                                        }
-
-                                                                        guard isOptionDown else { return }
-                                                                        if draggingApp == nil {
-                                                                            draggingApp = app
-                                                                            dragPop = true
-                                                                            dropFadeOut = false
-                                                                            overlayAppearPhase = false
-                                                                                // Show glows when starting drag (left glow only if not on first page)
-                                                                            showLeftGlow = currentPage > 0
-                                                                            showRightGlow = true
-                                                                            DispatchQueue.main.async {
-                                                                                withAnimation(.spring(response: 0.44, dampingFraction: 0.8)) {
-                                                                                    overlayAppearPhase = true
-                                                                                }
-                                                                            }
-                                                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                                                                                withAnimation(.spring(response: 0.15, dampingFraction: 0.65)) {
-                                                                                    dragPop = false
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                        dragLocation = value.location
-
-                                                                            // Check for navigation zone entry (relative to window edges)
-                                                                            // Convert local drag location to window coordinates
-                                                                        let windowWidth = NSScreen.main?.frame.width ?? 1920
-
-                                                                            // Get the window and convert coordinates properly
-                                                                        var windowPoint = CGPoint.zero
-                                                                        if NSApp.windows.first(where: { $0.isVisible }) != nil {
-                                                                                // Convert from geometry reader's coordinate space to window coordinates
-                                                                            let globalPoint = geo.frame(in: .global).origin
-                                                                            windowPoint = CGPoint(
-                                                                                x: value.location.x + globalPoint.x + 30, // account for horizontal padding
-                                                                                y: value.location.y + globalPoint.y + 20  // account for vertical padding
-                                                                            )
-                                                                        } else {
-                                                                                // Fallback to approximation if window not found
-                                                                            windowPoint = CGPoint(x: value.location.x + 30, y: value.location.y + 20)
-                                                                        }
-
-                                                                            // Update glow intensity based on proximity to edges
-                                                                            // Both sides start at 200px from edge, max intensity at 50px from edge
-                                                                        let glowActivationDistance: CGFloat = 200.0
-                                                                        let glowMaxIntensityDistance: CGFloat = 50.0
-
-                                                                            // Better visibility with smooth animation - more visible but still elegant
-                                                                        let baseGlowIntensity: CGFloat = 0.15 // More visible base intensity
-                                                                        let maxGlowIntensity: CGFloat = 0.5 // Good max intensity for smooth animation
-
-                                                                            // Calculate intensity for left glow with smooth animation
-                                                                        if showLeftGlow {
-                                                                            if windowPoint.x <= glowActivationDistance {
-                                                                                let normalizedDistance = max(0, windowPoint.x - glowMaxIntensityDistance) / (glowActivationDistance - glowMaxIntensityDistance)
-                                                                                leftGlowIntensity = baseGlowIntensity + ((maxGlowIntensity - baseGlowIntensity) * (1.0 - normalizedDistance)) // Smooth animation from base to max
-                                                                            } else {
-                                                                                leftGlowIntensity = baseGlowIntensity // Base glow when navigation available
-                                                                            }
-                                                                        } else {
-                                                                            leftGlowIntensity = 0.0
-                                                                        }
-
-                                                                            // Calculate intensity for right glow with smooth animation
-                                                                        if showRightGlow {
-                                                                            if windowPoint.x >= (windowWidth - glowActivationDistance) {
-                                                                                let distanceFromRightEdge = windowWidth - windowPoint.x
-                                                                                let normalizedDistance = max(0, distanceFromRightEdge - glowMaxIntensityDistance) / (glowActivationDistance - glowMaxIntensityDistance)
-                                                                                rightGlowIntensity = baseGlowIntensity + ((maxGlowIntensity - baseGlowIntensity) * (1.0 - normalizedDistance)) // Smooth animation from base to max
-                                                                            } else {
-                                                                                rightGlowIntensity = baseGlowIntensity // Base glow when navigation available
-                                                                            }
-                                                                        } else {
-                                                                            rightGlowIntensity = 0.0
-                                                                        }
-
-                                                                            // Page switching happens at 100px from edge (within the glow area)
-                                                                        let pageSwitchThreshold: CGFloat = 100.0
-                                                                        if windowPoint.x < pageSwitchThreshold && currentPage > 0 && !hasNavigatedLeft {
-                                                                            hasNavigatedLeft = true
-                                                                            navigateToPage(currentPage - 1)
-                                                                        } else if windowPoint.x > windowWidth - pageSwitchThreshold && !hasNavigatedRight {
-                                                                            hasNavigatedRight = true
-                                                                            if currentPage < appPages.count - 1 {
-                                                                                navigateToPage(currentPage + 1)
-                                                                            } else {
-                                                                                createNewPageWithDraggedIcon()
-                                                                            }
-                                                                        }
-
-                                                                        updateDragPreview(for: value.location, in: geo, page: page, cellHeight: cellHeight, rowSpacing: rowSpacing)
-                                                                    }
-                                                                    .onEnded { _ in
-                                                                        // Clear press state for CSS-like active animation
-                                                                        pressedAppId = nil
-
-                                                                        // Launch app if it wasn't a drag operation
-                                                                        if !isOptionDown {
-                                                                            launchApp(app)
-                                                                        }
-
-                                                                        if let draggedApp = draggingApp,
-                                                                           let targetIndex = targetDropIndex,
-                                                                           let currentIndex = allApps.firstIndex(where: { $0.id == draggedApp.id }),
-                                                                           targetIndex != currentIndex {
-                                                                            reorderApps(from: currentIndex, to: targetIndex)
-                                                                        }
-
-                                                                        withAnimation(.easeOut(duration: 0.28)) {
-                                                                            dropFadeOut = true
-                                                                        }
-                                                                        dragPop = false
-                                                                        showPreview = false
-                                                                        targetDropIndex = nil
-                                                                        leftGlowIntensity = 0.0
-                                                                        rightGlowIntensity = 0.0
-                                                                        showLeftGlow = false
-                                                                        showRightGlow = false
-                                                                        if draggingApp?.id == app.id {
-                                                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                                                                draggingApp = nil
-                                                                                overlayAppearPhase = false
-                                                                                dropFadeOut = false
-                                                                                hasNavigatedLeft = false
-                                                                                hasNavigatedRight = false
-                                                                            }
-                                                                        }
-                                                                    }
-                                                            )
-                                                            .animation(.spring(response: 0.44, dampingFraction: 0.8), value: draggingApp?.id)
-                                                        Text(app.name)
-                                                            .font(.system(size: 12))
-                                                            .lineLimit(1)
-                                                            .truncationMode(.tail)
-                                                            .opacity(isTargetApp(app) ? 0.0 : 1.0)
-                                                            .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: targetDropIndex)
+                                                            .clipShape(Circle())
+                                                            .help("Hide app")
+                                                            .padding(6)
+                                                            .opacity(showHide ? 1.0 : 0.0)
+                                                            .scaleEffect(showHide ? 1.0 : 0.75)
+                                                            .blur(radius: showHide ? 0 : 6)
+                                                            .animation(.easeOut(duration: 0.26), value: showHide)
+                                                            .allowsHitTesting(showHide)
+                                                        }
+                                                        .onHover { hovering in
+                                                            if hovering {
+                                                                hoveredAppId = app.id
+                                                            } else if hoveredAppId == app.id {
+                                                                hoveredAppId = nil
+                                                            }
+                                                        }
+                                                    Text(app.name)
+                                                        .font(.system(size: 12))
+                                                        .lineLimit(1)
+                                                        .truncationMode(.tail)
+                                                        .opacity(isTargetApp(app) ? 0.0 : 1.0)
+                                                        .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: targetDropIndex)
                                                     }
                                                     .animation(.interpolatingSpring(stiffness: 200, damping: 22), value: allApps)
                                                     .frame(maxWidth: .infinity)
@@ -710,6 +792,7 @@ struct ContentView: View {
             self.appOrder = finalOrder
             self.allApps = ordered
             self.updateHighlightedApp()
+            self.ensureValidPage()
         }
     }
 
@@ -729,18 +812,24 @@ struct ContentView: View {
     func updateHighlightedApp() {
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else {
-            highlightedAppId = nil
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                highlightedAppId = nil
+            }
             return
         }
 
         if let first = filteredApps.first {
-            highlightedAppId = first.id
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                highlightedAppId = first.id
+            }
             if let idx = allApps.firstIndex(where: { $0.id == first.id }) {
                 let page = idx / 36
                 navigateToPage(page)
             }
         } else {
-            highlightedAppId = nil
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                highlightedAppId = nil
+            }
         }
     }
 
@@ -761,11 +850,62 @@ struct ContentView: View {
         if newIndex >= items.count { newIndex = items.count - 1 }
 
         let app = items[newIndex]
-        highlightedAppId = app.id
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+            highlightedAppId = app.id
+        }
 
         if let idxInAll = allApps.firstIndex(where: { $0.id == app.id }) {
             let page = idxInAll / 36
             navigateToPage(page)
+        }
+    }
+
+    func toggleHide(_ app: AppInfo) {
+        let bundleId = app.bundleIdentifier
+        if hiddenBundleIds.contains(bundleId) {
+            // unhide: remove from hidden set and move app to end
+            hiddenBundleIds.remove(bundleId)
+            if let idx = allApps.firstIndex(where: { $0.bundleIdentifier == bundleId }) {
+                var apps = allApps
+                let moved = apps.remove(at: idx)
+                apps.append(moved)
+                allApps = apps
+                appOrder = apps.map { $0.bundleIdentifier }
+                // persist new order
+                let namesById = Dictionary(uniqueKeysWithValues: apps.map { ($0.bundleIdentifier, $0) })
+                Task {
+                    try? await persistOrder(appOrder, namesById: namesById)
+                }
+            }
+        } else {
+            // hide
+            hiddenBundleIds.insert(bundleId)
+        }
+        // persist hidden list
+        UserDefaults.standard.set(Array(hiddenBundleIds), forKey: "hiddenApps")
+        // refresh filtered results and highlighted app
+        updateHighlightedApp()
+        ensureValidPage()
+    }
+
+    func ensureValidPage() {
+        let pages = appPages
+        guard !pages.isEmpty else {
+            navigateToPage(0)
+            return
+        }
+
+        if pages.indices.contains(currentPage) {
+            if pages[currentPage].isEmpty {
+                if currentPage > 0 {
+                    navigateToPage(currentPage - 1)
+                } else if pages.count > 1 {
+                    navigateToPage(1)
+                }
+            }
+        } else {
+            let newPage = max(0, min(currentPage, pages.count - 1))
+            navigateToPage(newPage)
         }
     }
 
