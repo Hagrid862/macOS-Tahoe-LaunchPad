@@ -39,6 +39,8 @@ struct ContentView: View {
     @State private var showRightGlow: Bool = false
     @State private var leftGlowIntensity: CGFloat = 1.0
     @State private var rightGlowIntensity: CGFloat = 1.0
+    @State private var scrollAccumulator: CGFloat = 0
+    @State private var lastScrollNavAt: CFTimeInterval = 0
 
     
         
@@ -575,6 +577,39 @@ struct ContentView: View {
                             overlayAppearPhase = false
                             dropFadeOut = false
                         }
+                    }
+                } else if event.type == .scrollWheel {
+                    // Ignore when dragging icons; paging via scroll should not interfere
+                    if draggingApp != nil { return }
+                    // Ignore inertial momentum to avoid multiple flips per gesture
+                    if !event.momentumPhase.isEmpty { return }
+                    // Reset accumulator at the start of a new gesture
+                    if event.phase.contains(.began) { scrollAccumulator = 0 }
+
+                    let dx = event.scrollingDeltaX
+                    let dy = event.scrollingDeltaY
+                    // Use dominant axis so both horizontal and vertical scrolling can switch pages
+                    let dominant = abs(dx) >= abs(dy) ? dx : dy
+                    if dominant == 0 { return }
+
+                    scrollAccumulator += dominant
+                    let threshold: CGFloat = event.hasPreciseScrollingDeltas ? 50.0 : 1.0
+                    let now = CFAbsoluteTimeGetCurrent()
+                    let cooldown: CFTimeInterval = 0.25
+
+                    if abs(scrollAccumulator) >= threshold && (now - lastScrollNavAt) > cooldown {
+                        // Negative dominant means moving forward (to the right/next page) in natural scrolling
+                        if dominant < 0 {
+                            if currentPage < appPages.count - 1 {
+                                navigateToPage(currentPage + 1)
+                            }
+                        } else {
+                            if currentPage > 0 {
+                                navigateToPage(currentPage - 1)
+                            }
+                        }
+                        lastScrollNavAt = now
+                        scrollAccumulator = 0
                     }
                 }
             }

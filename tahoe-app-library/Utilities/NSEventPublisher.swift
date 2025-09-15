@@ -7,7 +7,7 @@ final class NSEventPublisher {
     private var monitor: Any?
 
     private init() {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .scrollWheel]) { [weak self] event in
             self?.publisher.send(event)
             return event
         }
