@@ -772,22 +772,18 @@ struct ContentView: View {
     private func launchApp(_ app: AppInfo) {
         // Launch the application using NSWorkspace
         let workspace = NSWorkspace.shared
-        do {
-            let configuration = NSWorkspace.OpenConfiguration()
-            workspace.openApplication(at: app.url, configuration: configuration) { appProxy, error in
-                if let error = error {
-                    print("Failed to open app \(app.name): \(error)")
-                    return
-                }
-                // Close the window after launching the app
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    if let window = NSApp.windows.first(where: { $0.isVisible }) {
-                        window.close()
-                    }
-                }
+        let configuration = NSWorkspace.OpenConfiguration()
+        workspace.openApplication(at: app.url, configuration: configuration) { appProxy, error in
+            if let error = error {
+                print("Failed to open app \(app.name): \(error)")
             }
-        } catch {
-            print("Failed to launch app \(app.name): \(error)")
+        }
+
+        // Close the window immediately after initiating the launch
+        DispatchQueue.main.async {
+            if let window = NSApp.windows.first(where: { $0.isVisible }) {
+                window.close()
+            }
         }
     }
 }
