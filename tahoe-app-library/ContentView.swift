@@ -45,6 +45,7 @@ struct ContentView: View {
     @State private var keyMonitor: Any? = nil
     @State private var hoveredAppId: String? = nil
     @State var hiddenBundleIds: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "hiddenApps") ?? [])
+    @State private var showHiddenMenu: Bool = false
 
     
         
@@ -60,18 +61,10 @@ struct ContentView: View {
             
             VStack(alignment: .center) {
                 HStack(spacing: 10) {
-                    // Hidden apps menu (shown only while Option is held)
+                    // Hidden apps menu (custom popover) - keep reserved space and style like the text field
                     let hiddenApps = allApps.filter { hiddenBundleIds.contains($0.bundleIdentifier) }
-                    // Keep space reserved so TextField doesn't move; animate visibility
-                    Menu {
-                        if hiddenApps.isEmpty {
-                            Text("No hidden apps")
-                        } else {
-                            ForEach(hiddenApps, id: \.id) { app in
-                                Button(app.name) { toggleHide(app) }
-                            }
-                        }
-                    } label: {
+                    // Always render the button; popover shows content (grid or empty label)
+                    Button(action: { showHiddenMenu.toggle() }) {
                         ZStack {
                             Image(systemName: "eye.slash.fill")
                                 .foregroundColor(.white)
@@ -87,10 +80,52 @@ struct ContentView: View {
                         .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
                     }
                     .buttonStyle(.plain)
-                    .opacity(isOptionDown ? 1.0 : 0.0)
-                    .scaleEffect(isOptionDown ? 1.0 : 0.8)
-                    .animation(.easeOut(duration: 0.18), value: isOptionDown)
-                    .allowsHitTesting(isOptionDown)
+                    .opacity((isOptionDown || showHiddenMenu) ? 1.0 : 0.0)
+                    .scaleEffect((isOptionDown || showHiddenMenu) ? 1.0 : 0.8)
+                    .animation(.easeOut(duration: 0.18), value: (isOptionDown || showHiddenMenu))
+                    .allowsHitTesting(isOptionDown || showHiddenMenu)
+                    .popover(isPresented: $showHiddenMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                        VStack(spacing: 8) {
+                            Text("Hidden Apps")
+                                .font(.system(size: 13, weight: .semibold))
+                                .padding(.top, 8)
+
+                            if hiddenApps.isEmpty {
+                                Spacer(minLength: 12)
+                                Text("No hidden apps")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(Color.secondary)
+                                Spacer()
+                            } else {
+                                ScrollView(.vertical) {
+                                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                                        ForEach(hiddenApps, id: \.id) { app in
+                                            VStack(spacing: 6) {
+                                                let nsImage = IconProvider.cachedHighResIcon(bundleId: app.bundleIdentifier, appPath: app.url.path, pointSize: 48)
+                                                Image(nsImage: nsImage)
+                                                    .resizable()
+                                                    .frame(width: 48, height: 48)
+                                                    .cornerRadius(10)
+                                                Text(app.name)
+                                                    .font(.system(size: 11))
+                                                    .lineLimit(1)
+                                            }
+                                            .padding(8)
+                                            .transition(.scale.combined(with: .opacity))
+                                            .id(app.id)
+                                            .onTapGesture {
+                                                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                                                    toggleHide(app) // unhides and moves to end
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .padding(12)
+                                }
+                            }
+                        }
+                        .frame(minWidth: 360, minHeight: 200, maxHeight: 480)
+                    }
 
                     TextField("Search", text: $search)
                         .textFieldStyle(.plain)
@@ -725,6 +760,8 @@ struct ContentView: View {
                         }
                     }
                 } else if event.type == .scrollWheel {
+                    // If the hidden apps popover is open, prevent page scrolling
+                    if showHiddenMenu { return }
                     // Ignore when dragging icons; paging via scroll should not interfere
                     if draggingApp != nil { return }
                     // Ignore inertial momentum to avoid multiple flips per gesture
